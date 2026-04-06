@@ -1,4 +1,3 @@
-import numpy as np
 import albumentations as A
 
 def get_train_transforms(image_size: int = 256) -> A.Compose:
