@@ -20,7 +20,7 @@ class BaseDataset(Dataset, ABC):
 
     @abstractmethod
     def __getitem__(self, index: int) -> Tuple[np.ndarray, int, Dict[str, Any]]:
-        # Return (image, lable, metadata) for a given index, label: 0 = fake/spoof, 1 = real
+        # Return (image, label, metadata) for a given index, label: 0 = fake/spoof, 1 = real
         pass
 
     def __len__(self) -> int:
