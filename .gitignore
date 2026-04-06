@@ -21,7 +21,7 @@ env/
 
 # Project-specific large files
 weights/
-data/
+/data/
 outputs/
 third_party/
 *.onnx
