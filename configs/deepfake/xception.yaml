@@ -1,0 +1,20 @@
+# XceptionNet deepfake detector configuration
+model:
+  name: "xception"
+  num_classes: 2
+  input_size: [299, 299]
+  threshold: 0.5
+
+weights:
+  checkpoint: "${project_root}/weights/deepfake/xception_best.pth"
+
+training:
+  epochs: 30
+  lr: 0.0002
+  batch_size: 32
+  optimizer: "adam"
+  scheduler: "step"
+
+inference:
+  batch_size: 1
+  device: "cuda:0"

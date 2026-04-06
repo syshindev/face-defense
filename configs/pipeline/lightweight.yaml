@@ -1,0 +1,23 @@
+# Lightweight pipeline for real-time webcam demo
+pipeline:
+  name: "lightweight"
+
+  stages:
+    - name: "anti_spoof"
+      enabled: true
+      early_exit: true
+      early_exit_threshold: 0.2
+      models:
+        - type: "silent_fas"
+          weight: 1.0
+
+    - name: "liveness"
+      enabled: true
+      early_exit: false
+      models:
+        - type: "texture_analyzer"
+          weight: 1.0
+
+  fusion:
+    method: "weighted_average"
+    final_threshold: 0.5

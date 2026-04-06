@@ -1,0 +1,38 @@
+# Full multi-layer defense pipeline configuration
+pipeline:
+  name: "full_defense"
+
+  stages:
+    - name: "anti_spoof"
+      enabled: true
+      early_exit: true
+      early_exit_threshold: 0.15
+      models:
+        - type: "silent_fas"
+          weight: 0.6
+        - type: "deepface_spoof"
+          weight: 0.4
+
+    - name: "liveness"
+      enabled: true
+      early_exit: false
+      models:
+        - type: "blink_detector"
+          weight: 0.3
+        - type: "texture_analyzer"
+          weight: 0.4
+        - type: "depth_estimator"
+          weight: 0.3
+
+    - name: "deepfake"
+      enabled: true
+      early_exit: false
+      models:
+        - type: "xception"
+          weight: 0.5
+        - type: "efficientnet"
+          weight: 0.5
+
+  fusion:
+    method: "weighted_average"
+    final_threshold: 0.5
