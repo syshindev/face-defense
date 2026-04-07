@@ -37,8 +37,7 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
-# Test notebooks and images
-notebooks/*.ipynb
+# Test images
 notebooks/*.jpg
 notebooks/*.png
 

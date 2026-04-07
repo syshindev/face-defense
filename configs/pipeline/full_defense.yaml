@@ -14,7 +14,7 @@ pipeline:
           weight: 0.4
 
     - name: "liveness"
-      enabled: true
+      enabled: false
       early_exit: false
       models:
         - type: "blink_detector"
@@ -25,7 +25,7 @@ pipeline:
           weight: 0.3
 
     - name: "deepfake"
-      enabled: true
+      enabled: false
       early_exit: false
       models:
         - type: "xception"
