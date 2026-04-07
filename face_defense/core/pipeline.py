@@ -102,3 +102,41 @@ class DefensePipeline:
         all_results = [r for results in stage_results.values() for r in results]
         return self._pick_attack_type(all_results)
     
+    
+def build_pipeline(config: DictConfig) -> DefensePipeline:
+    # Build pipeline from YAML config
+    from face_defense.core.registry import DETECTOR_REGISTRY
+
+    # Import all model modules to trigger registration
+    import face_defense.models.anti_spoof.silent_fas
+    import face_defense.models.anti_spoof.deepface_spoof
+    import face_defense.models.anti_spoof.cdcn
+    import face_defense.models.deepfake.xception_det
+    import face_defense.models.deepfake.efficientnet_det
+    import face_defense.models.liveness.blink_detector
+    import face_defense.models.liveness.texture_analyzer
+    import face_defense.models.liveness.depth_estimator
+
+    pipeline = DefensePipeline(config.get("pipeline", config))
+
+    for stage_cfg in config.pipeline.stages:
+        if not stage_cfg.get("enabled", True):
+            continue
+
+        detectors = []
+        weights = []
+        for model_cfg in stage_cfg.models:
+            detector = DETECTOR_REGISTRY.build(model_cfg.type, model_cfg)
+            detectors.append(detector)
+            weights.append(model_cfg.get("weight", 1.0))
+        
+        stage = StageConfig(
+            name=stage_cfg.name,
+            detectors=detectors,
+            weights=weights,
+            early_exit=stage_cfg.get("early_exit", False),
+            early_exit_threshold=stage_cfg.get("early_exit_threshold", 0.15),
+        )
+        pipeline.add_stage(stage)
+    
+    return pipeline
