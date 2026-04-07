@@ -25,7 +25,7 @@ class CDCNDetector(BaseDetector):
             is_real=True,
             score=1.0,
             attack_type=None,
-            confidence=0.0,
+            confidence=1.0,
             metadata={"detector": "cdcn"},
         )
 

@@ -1,4 +1,5 @@
 from typing import Callable, Dict, Type
+from omegaconf import DictConfig
 from face_defense.core.base_detector import BaseDetector
 
 
@@ -17,7 +18,7 @@ class Registry:
         return wrapper
     
 
-    def build(self, name: str, config) -> BaseDetector:
+    def build(self, name: str, config: DictConfig) -> BaseDetector:
         if name not in self._registry:
             available = ", ".join(sorted(self._registry.keys()))
             raise KeyError(f"Detector '{name}' not found, available: [{available}]")
