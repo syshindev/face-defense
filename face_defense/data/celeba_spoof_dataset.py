@@ -9,7 +9,8 @@ from torch.utils.data import Dataset
 
 class CelebASpoofDataset(Dataset):
     # CelebA-Spoof dataset loader
-    # Annotation index 40: 0 = live (real), 1 = spoof (fake)
+    # Folder structure: Data/{split}/{subject_id}/live/ or spoof/
+    # Label: 0 = live (real), 1 = spoof (fake)
 
     def __init__(self, root: str, split: str = "train", image_size: int = 256, transform=None):
         self.root = root
@@ -17,30 +18,36 @@ class CelebASpoofDataset(Dataset):
         self.image_size = image_size
         self.transform = transform
         self.samples = []
-        self._load_annotations()
+        self._load_samples()
 
-    def _load_annotations(self):
-        # Parse annotation file from metas/
-        if self.split == "train":
-            meta_path = os.path.join(self.root, "metas", "intra_test", "train_label.txt")
-            if not os.path.exists(meta_path):
-                meta_path = os.path.join(self.root, "metas", "intra_train", "items.txt")
-        else:
-            meta_path = os.path.join(self.root, "metas", "intra_test", "test_label.txt")
-            if not os.path.exists(meta_path):
-                meta_path = os.path.join(self.root, "metas", "intra_test", "items.txt")
+    def _load_samples(self):
+        # Scan folder structure for images and labels
+        split_dir = os.path.join(self.root, "Data", self.split)
 
-        with open(meta_path, "r") as f:
-            for line in f:
-                parts = line.strip().split()
-                if len(parts) < 41:
-                    continue
-                img_path = parts[0]
-                label = int(parts[40])  # 0 = live, 1 = spoof
-                self.samples.append({
-                    "path": os.path.join(self.root, "Data", img_path),
-                    "label": label,
-                })
+        for subject_id in sorted(os.listdir(split_dir)):
+            subject_dir = os.path.join(split_dir, subject_id)
+            if not os.path.isdir(subject_dir):
+                continue
+
+            # Live images (label = 0)
+            live_dir = os.path.join(subject_dir, "live")
+            if os.path.exists(live_dir):
+                for fname in os.listdir(live_dir):
+                    if fname.lower().endswith((".jpg", ".png")):
+                        self.samples.append({
+                            "path": os.path.join(live_dir, fname),
+                            "label": 0,
+                        })
+
+            # Spoof images (label = 1)
+            spoof_dir = os.path.join(subject_dir, "spoof")
+            if os.path.exists(spoof_dir):
+                for fname in os.listdir(spoof_dir):
+                    if fname.lower().endswith((".jpg", ".png")):
+                        self.samples.append({
+                            "path": os.path.join(spoof_dir, fname),
+                            "label": 1,
+                        })
 
     def __len__(self):
         return len(self.samples)
