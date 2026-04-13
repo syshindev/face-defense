@@ -64,7 +64,14 @@ def analyze_frame(frame):
 
 def main():
     cap = cv2.VideoCapture(0)
+    print("Press 'r' to start recording REAL scores")
+    print("Press 's' to start recording SPOOF scores")
+    print("Press 'p' to print summary")
     print("Press 'q' to quit")
+
+    real_scores = []
+    spoof_scores = []
+    mode = None  # None, "real", "spoof"
 
     while True:
         ret, frame = cap.read()
@@ -75,7 +82,22 @@ def main():
 
         if result:
             x1, y1, x2, y2 = result["bbox"]
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            # Record scores based on mode
+            if mode == "real":
+                real_scores.append(result["lap_var"])
+                color = (0, 255, 0)
+                cv2.putText(frame, f"RECORDING REAL ({len(real_scores)})", (10, 150),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            elif mode == "spoof":
+                spoof_scores.append(result["lap_var"])
+                color = (0, 0, 255)
+                cv2.putText(frame, f"RECORDING SPOOF ({len(spoof_scores)})", (10, 150),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            else:
+                color = (255, 255, 0)
+
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
             # Display scores
             y = 30
@@ -87,7 +109,29 @@ def main():
                 y += 30
 
         cv2.imshow("Debug - Anti Spoofing Scores", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        key = cv2.waitKey(1) & 0xFF
+
+        if key == ord("r"):
+            mode = "real" if mode != "real" else None
+            print(f"Mode: {'REAL recording' if mode == 'real' else 'stopped'}")
+        elif key == ord("s"):
+            mode = "spoof" if mode != "spoof" else None
+            print(f"Mode: {'SPOOF recording' if mode == 'spoof' else 'stopped'}")
+        elif key == ord("p"):
+            if real_scores:
+                r = np.array(real_scores)
+                print(f"\nREAL  lap_var: mean={r.mean():.2f}, min={r.min():.2f}, max={r.max():.2f}, std={r.std():.2f}")
+            if spoof_scores:
+                s = np.array(spoof_scores)
+                print(f"SPOOF lap_var: mean={s.mean():.2f}, min={s.min():.2f}, max={s.max():.2f}, std={s.std():.2f}")
+        elif key == ord("q"):
+            # Print final summary
+            if real_scores:
+                r = np.array(real_scores)
+                print(f"\nREAL  lap_var: mean={r.mean():.2f}, min={r.min():.2f}, max={r.max():.2f}, std={r.std():.2f}")
+            if spoof_scores:
+                s = np.array(spoof_scores)
+                print(f"SPOOF lap_var: mean={s.mean():.2f}, min={s.min():.2f}, max={s.max():.2f}, std={s.std():.2f}")
             break
 
     cap.release()
