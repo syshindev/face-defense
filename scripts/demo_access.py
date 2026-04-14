@@ -63,6 +63,20 @@ class FaceDatabase:
 
         return best_name, float(best_sim)
 
+    def delete(self, name):
+        if name not in self.users:
+            print(f"User not found: {name}")
+            return
+        emb_path = os.path.join(self.db_path, self.users[name])
+        if os.path.exists(emb_path):
+            os.remove(emb_path)
+        del self.users[name]
+        self._save()
+        print(f"Deleted: {name}")
+
+    def list_users(self):
+        return list(self.users.keys())
+
     def count(self):
         return len(self.users)
 
@@ -173,45 +187,14 @@ def draw_result_panel(frame, result_info, panel_w=350):
     y += 50
 
     # Controls
-    cv2.line(panel, (20, h - 80), (panel_w - 20, h - 80), (100, 100, 100), 1)
-    cv2.putText(panel, "[n] Register Face", (20, h - 55),
+    cv2.line(panel, (20, h - 90), (panel_w - 20, h - 90), (100, 100, 100), 1)
+    reg_count = result_info.get("registered", 0)
+    cv2.putText(panel, f"Registered: {reg_count}", (20, h - 65),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
-    cv2.putText(panel, "[q] Quit", (20, h - 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
+    cv2.putText(panel, "[n] Register  [d] Delete  [q] Quit", (20, h - 35),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
 
     return panel
-
-
-def register_face(face_app, db, cap):
-    # Registration flow with countdown
-    name = input("Enter name: ").strip()
-    if not name:
-        print("Registration cancelled")
-        return
-
-    print("Look at the camera...")
-    for i in range(3, 0, -1):
-        ret, frame = cap.read()
-        if ret:
-            cv2.putText(frame, str(i), (frame.shape[1] // 2 - 30, frame.shape[0] // 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-            panel = draw_result_panel(frame, {"status": "registering"})
-            cv2.imshow("Face Defense - Access Control Demo", np.hstack([frame, panel]))
-            cv2.waitKey(1000)
-
-    ret, frame = cap.read()
-    if not ret:
-        print("Failed to capture")
-        return
-
-    faces = face_app.get(frame)
-    if len(faces) == 0:
-        print("No face detected")
-        return
-
-    face = max(faces, key=lambda f: f.det_score)
-    db.register(name, face.normed_embedding)
-    print(f"Successfully registered: {name}")
 
 
 def main():
@@ -244,10 +227,9 @@ def main():
             print("IR camera not found, falling back to blink detection")
             use_ir = False
 
-    # Register first user if database is empty
+    # Prompt registration if database is empty
     if db.count() == 0:
-        print("No registered users. Starting registration...")
-        register_face(face_app, db, cap)
+        print("No registered users. Press 'n' to register or start without registration.")
 
     # Blink state
     EAR_CLOSE = 0.33
@@ -270,7 +252,7 @@ def main():
             if not ir_ret:
                 ir_frame = None
 
-        result_info = {"status": "waiting", "name": "", "similarity": 0, "liveness": ""}
+        result_info = {"status": "waiting", "name": "", "similarity": 0, "liveness": "", "registered": db.count()}
         now = time.time()
 
         # Face detection + recognition
@@ -314,7 +296,7 @@ def main():
             if not is_live:
                 # Spoof detected
                 status = f"spoof_{spoof_type}" if spoof_type in ("display", "print") else "spoof_blink"
-                result_info = {"status": status, "liveness": "FAIL"}
+                result_info = {"status": status, "liveness": "FAIL", "registered": db.count()}
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
                 cv2.putText(frame, "SPOOF", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
@@ -327,9 +309,10 @@ def main():
                         "name": name,
                         "similarity": sim,
                         "liveness": "PASS",
+                        "registered": db.count(),
                     }
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(frame, f"{name}", (x1, y1 - 10),
+                    cv2.putText(frame, "AUTHORIZED", (x1, y1 - 10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 else:
                     result_info = {
@@ -337,6 +320,7 @@ def main():
                         "name": name if name else "",
                         "similarity": sim if sim > 0 else 0,
                         "liveness": "PASS",
+                        "registered": db.count(),
                     }
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
                     cv2.putText(frame, "UNKNOWN", (x1, y1 - 10),
@@ -352,8 +336,22 @@ def main():
         if key == ord("q"):
             break
         elif key == ord("n"):
-            register_face(face_app, db, cap)
-            print(f"Registered users: {db.count()}")
+            if len(faces) > 0:
+                face = max(faces, key=lambda f: f.det_score)
+                idx = db.count() + 1
+                name = f"User_{idx:03d}"
+                db.register(name, face.normed_embedding)
+                print(f"Registered: {name} | Total: {db.count()}")
+            else:
+                print("No face detected")
+        elif key == ord("d"):
+            users = db.list_users()
+            if not users:
+                print("No registered users")
+            else:
+                last = users[-1]
+                db.delete(last)
+                print(f"Deleted: {last} | Remaining: {db.count()}")
 
     cap.release()
     if ir_cap:
