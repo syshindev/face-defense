@@ -1,103 +1,79 @@
 # Face Defense
 
-Multi-layer face anti-spoofing and deepfake detection research framework using open-source models.
+Real-time face anti-spoofing and deepfake detection system for access control.
 
-## Overview
+## Features
 
-Defends against 5 types of face spoofing attacks:
-- Printed photo attacks
-- Screen replay attacks
-- 3D mask attacks
-- Deepfake / synthetic faces
-- Replay attacks
+- **Face Registration & Recognition** — InsightFace embedding-based identity verification
+- **Anti-Spoofing** — Detects printed photos, screen replays, and 3D masks
+- **Liveness Detection** — EAR-based blink detection for passive liveness verification
+- **IR Camera Support** — Instant spoof detection with near-infrared camera (940nm)
+- **Deepfake Detection** — XceptionNet / EfficientNet-B4 multi-class classification
+- **GUI Demo** — PyQt5-based access control demo with real-time camera feed
 
 ## Architecture
 
 ```
-              ┌────────────────────────┐
-              │  Input Frame           │
-              │  Image / Video         │
-              └────────────┬───────────┘
-                           │
-                           v
-              ┌────────────────────────┐
-              │  Face Detection        │
-              │  InsightFace RetinaFace│
-              └────────────┬───────────┘
-                           │
-                           v
-              ┌────────────────────────┐
-              │  Stage 1: Anti-Spoof   │───> SPOOF (early exit)
-              │  Silent-FAS / CDCN     │
-              └────────────┬───────────┘
-                           │ pass
-                           v
-              ┌────────────────────────┐
-              │  Stage 2: Liveness     │
-              │  Blink / LBP / Depth   │
-              └────────────┬───────────┘
-                           │
-                           v
-              ┌────────────────────────┐
-              │  Stage 3: Deepfake     │
-              │  XceptionNet/EffNet    │
-              └────────────┬───────────┘
-                           │
-                           v
-              ┌────────────────────────┐
-              │  Stage 4: Fusion       │
-              │  Weighted Average      │
-              └────────────┬───────────┘
-                           │
-                           v
-              ┌────────────────────────┐
-              │  REAL / SPOOF          │
-              └────────────────────────┘
+Input Frame
+    │
+    v
+Face Detection (InsightFace)
+    │
+    ├─── IR Camera ──> Instant Spoof Detection (screen/print)
+    │
+    ├─── Liveness ──> Blink Detection (EAR)
+    │
+    ├─── Anti-Spoof ──> CDCN Depth Map Analysis
+    │
+    └─── Deepfake ──> XceptionNet / EfficientNet-B4
+    │
+    v
+REAL / SPOOF + Face Recognition (Authorized / Unauthorized)
 ```
 
-### Stage 1: Anti-Spoofing
-| Model | Description |
-|-------|-------------|
-| Silent-FAS | Lightweight anti-spoofing (~20ms), multi-scale inference |
-| CDCN | Depth map prediction, CVPR 2020 winner |
-| deepface | Built-in anti-spoofing baseline |
+## Benchmark Results
 
-### Stage 2: Liveness Detection
-| Model | Description |
-|-------|-------------|
-| Blink Detector | Eye Aspect Ratio via MediaPipe |
-| Texture Analyzer | LBP + Laplacian variance |
-| Depth Estimator | MediaPipe face mesh Z-coordinates |
+### Anti-Spoofing (CDCN)
 
-### Stage 3: Deepfake Detection
-| Model | Description |
-|-------|-------------|
-| XceptionNet | Standard deepfake detector |
-| EfficientNet-B4 | DFDC challenge winning architecture |
+| Dataset | AUC | ACER |
+|---------|-----|------|
+| CelebA-Spoof (same-domain, 67K) | 0.9985 | 0.0272 |
+| LCC-FASD (cross-dataset, 7.5K) | 0.8097 | 0.2519 |
 
-### Stage 4: Score Fusion
-- Weighted average across all stages
-- Cascade early-exit for real-time performance
+### Model Comparison (LCC-FASD cross-dataset)
+
+| Metric | Silent-FAS | CDCN |
+|--------|-----------|------|
+| AUC | 0.7757 | **0.8097** |
+| ACER | 0.3070 | **0.2519** |
 
 ## Project Structure
 
 ```
 face-defense/
-├── configs/              # YAML configuration files
+├── configs/                    # YAML configuration files
 ├── face_defense/
-│   ├── core/             # Pipeline, registry, base classes
-│   ├── data/             # Dataset loaders, preprocessing
+│   ├── core/                   # Pipeline, registry, base classes
+│   ├── data/                   # Dataset loaders, preprocessing
+│   │   ├── celeba_spoof_dataset.py
+│   │   └── ff_dataset.py
 │   ├── models/
-│   │   ├── anti_spoof/   # Silent-FAS, CDCN, deepface
-│   │   ├── deepfake/     # XceptionNet, EfficientNet
-│   │   ├── liveness/     # Blink, texture, depth
-│   │   └── ensemble/     # Score fusion, cascade policy
-│   ├── training/         # Training loop
-│   ├── evaluation/       # Metrics, evaluator, visualization
-│   └── utils/            # Device management
-├── scripts/              # Entry-point scripts
-├── notebooks/            # Research notebooks
-└── third_party/          # External repos (Silent-FAS, etc.)
+│   │   ├── anti_spoof/         # Silent-FAS, CDCN
+│   │   ├── deepfake/           # XceptionNet, EfficientNet
+│   │   └── liveness/           # Blink, texture, depth
+│   ├── evaluation/             # Metrics, visualization
+│   └── utils/                  # Device management
+├── scripts/
+│   ├── demo_gui.py             # PyQt5 access control demo
+│   ├── demo_access.py          # OpenCV access control demo
+│   ├── demo_webcam.py          # Webcam liveness demo
+│   ├── train_cdcn.py           # CDCN training script
+│   ├── train_deepfake.py       # Deepfake training script
+│   ├── benchmark_cdcn.py       # CDCN benchmark evaluation
+│   ├── finetune_cdcn_nuaa.py   # NUAA fine-tuning
+│   └── extract_frames.py       # FF++ frame extraction
+├── notebooks/                  # Benchmark evaluation notebooks
+└── third_party/                # External repos (Silent-FAS)
 ```
 
 ## Getting Started
@@ -111,41 +87,89 @@ face-defense/
 ### Installation
 
 ```bash
-# Create conda environment
 conda create -n face-defense python=3.10 -y
 conda activate face-defense
 
-# Install dlib via conda (pip build fails on Windows due to cp949 encoding issue)
-conda install -c conda-forge dlib -y
-
-# Install remaining dependencies
-pip install -r requirements.txt
-
-# Install the package in development mode
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+pip install insightface onnxruntime-gpu opencv-python mediapipe PyQt5 timm
 pip install -e .
-
-# Clone Silent-Face-Anti-Spoofing for anti-spoof inference
-git clone https://github.com/minivision-ai/Silent-Face-Anti-Spoofing.git third_party/Silent-Face-Anti-Spoofing
 ```
 
 ## Usage
 
-### Single Image Analysis
+### GUI Demo (Access Control)
 ```bash
-python scripts/demo_image.py --image path/to/image.jpg
+python scripts/demo_gui.py --camera 0
 ```
 
-### Webcam Demo
+### GUI Demo with IR Camera
 ```bash
-python scripts/demo_webcam.py --config configs/pipeline/lightweight.yaml
+python scripts/demo_gui.py --camera 0 --ir_camera 1
+```
+
+### OpenCV Demo
+```bash
+python scripts/demo_access.py --camera 0
+```
+
+### Webcam Liveness Demo
+```bash
+python scripts/demo_webcam.py --camera 0
 ```
 
 ### Training
+
 ```bash
-python scripts/train.py --config configs/anti_spoof/cdcn.yaml
+# Anti-spoofing (CDCN)
+python scripts/train_cdcn.py --data_root data/CelebA_Spoof --epochs 50
+
+# Deepfake detection (XceptionNet)
+python scripts/train_deepfake.py --data_root data/ff-c23-frames --model legacy_xception --epochs 30
 ```
 
-### Evaluation
+### Benchmark
 ```bash
-python scripts/evaluate.py --config configs/pipeline/full_defense.yaml
+python scripts/benchmark_cdcn.py
 ```
+
+See [benchmark results](notebooks/benchmark_eval.ipynb) for detailed evaluation.
+
+## Security Levels
+
+| Level | Components | Detects | GPU |
+|-------|-----------|---------|-----|
+| Basic | Liveness (Blink) | Photo, video replay | Not required |
+| Standard | Liveness + IR Camera | + Print, display attacks | Not required |
+| Advanced | Liveness + IR + CDCN | + High-quality forgeries | Required |
+| Maximum | All + Deepfake Detection | + AI-generated faces | Required |
+
+## Key Scripts
+
+| Script | Description |
+|--------|-------------|
+| [demo_gui.py](scripts/demo_gui.py) | PyQt5 access control demo |
+| [demo_access.py](scripts/demo_access.py) | OpenCV access control demo |
+| [demo_webcam.py](scripts/demo_webcam.py) | Webcam liveness demo |
+| [train_cdcn.py](scripts/train_cdcn.py) | CDCN anti-spoofing training |
+| [train_deepfake.py](scripts/train_deepfake.py) | Deepfake detection training |
+| [benchmark_cdcn.py](scripts/benchmark_cdcn.py) | CDCN benchmark evaluation |
+| [finetune_cdcn_nuaa.py](scripts/finetune_cdcn_nuaa.py) | NUAA fine-tuning |
+| [extract_frames.py](scripts/extract_frames.py) | FF++ video frame extraction |
+
+## References
+
+### Papers
+- [CDCN: Central Difference Convolutional Network](https://arxiv.org/abs/2003.04092) — Face anti-spoofing via depth map
+- [FaceForensics++](https://arxiv.org/abs/1901.08971) — Deepfake detection benchmark (XceptionNet)
+- [EfficientNet](https://arxiv.org/abs/1905.11946) — Efficient image classification
+
+### Datasets
+- [CelebA-Spoof](https://github.com/ZhangYuanhan-AI/CelebA-Spoof) — 561K anti-spoofing images
+- [FaceForensics++](https://github.com/ondyari/FaceForensics) — Deepfake detection dataset
+- [LCC-FASD](https://csit.am/2019/proceedings/PRIP/PRIP2.pdf) — Cross-dataset evaluation
+- [NUAA](https://www.kaggle.com/datasets/olgabelitskaya/photo-paper-datasets) — Webcam anti-spoofing
+
+### Libraries
+- [InsightFace](https://github.com/deepinsight/insightface) — Face detection & recognition
+- [MediaPipe](https://github.com/google/mediapipe) — Face mesh & landmark detection
+- [timm](https://github.com/huggingface/pytorch-image-models) — PyTorch image models
