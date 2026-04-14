@@ -22,7 +22,7 @@ def load_config(config_path: Union[str, Path], overrides: Optional[List[str]] = 
         "weights": str(_PROJECT_ROOT / "weights"),
         "data": str(_PROJECT_ROOT / "data"),
         "outputs": str(_PROJECT_ROOT / "outputs"),
-        "third_party": str(_PROJECT_ROOT / "third_party"),
+        "checkpoints": str(_PROJECT_ROOT / "checkpoints"),
     })
     cfg = OmegaConf.merge(path_vars, cfg)
 

@@ -72,8 +72,7 @@ face-defense/
 │   ├── benchmark_cdcn.py       # CDCN benchmark evaluation
 │   ├── finetune_cdcn_nuaa.py   # NUAA fine-tuning
 │   └── extract_frames.py       # FF++ frame extraction
-├── notebooks/                  # Benchmark evaluation notebooks
-└── third_party/                # External repos (Silent-FAS)
+└── notebooks/                  # Benchmark evaluation notebooks
 ```
 
 ## Getting Started

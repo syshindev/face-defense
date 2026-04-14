@@ -108,8 +108,6 @@ def build_pipeline(config: DictConfig) -> DefensePipeline:
     from face_defense.core.registry import DETECTOR_REGISTRY
 
     # Import all model modules to trigger registration
-    import face_defense.models.anti_spoof.silent_fas
-    import face_defense.models.anti_spoof.deepface_spoof
     import face_defense.models.anti_spoof.cdcn
     import face_defense.models.deepfake.xception_det
     import face_defense.models.deepfake.efficientnet_det

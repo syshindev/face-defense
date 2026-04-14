@@ -1,6 +1,4 @@
 import argparse
-import os
-import sys
 
 import cv2
 
@@ -18,12 +16,6 @@ def parse_args():
 
 def main():
     args = parse_args()
-
-    # Add Silent-FAS to path if available
-    fas_root = os.path.join(os.path.dirname(__file__), "..", "third_party", "Silent-Face-Anti-Spoofing")
-    if os.path.exists(fas_root):
-        sys.path.insert(0, os.path.abspath(fas_root))
-        os.chdir(os.path.abspath(fas_root))
 
     config = load_config(args.config)
     pipeline = build_pipeline(config)
