@@ -18,7 +18,7 @@ from face_defense.data.ff_dataset import FFDataset, NUM_CLASSES
 def parse_args():
     parser = argparse.ArgumentParser(description="Train deepfake detector on FF++ c23")
     parser.add_argument("--data_root", type=str, required=True, help="Path to FF++ c23 root")
-    parser.add_argument("--model", type=str, default="xception", choices=["xception", "efficientnet_b4"])
+    parser.add_argument("--model", type=str, default="legacy_xception", choices=["legacy_xception", "xception41", "efficientnet_b4"])
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -90,7 +90,7 @@ def main():
     print(f"Model: {args.model}")
 
     # Adjust image size per model
-    if args.model == "efficientnet_b4" and args.image_size == 299:
+    if args.model == "efficientnet_b4":
         args.image_size = 380
 
     # Data augmentation for training
