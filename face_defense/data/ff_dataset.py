@@ -72,11 +72,8 @@ class FFDataset(Dataset):
         image = cv2.resize(image, (self.image_size, self.image_size))
 
         if self.transform:
-            augmented = self.transform(image=image)
-            image = augmented["image"]
-
-        # Normalize and convert to CHW tensor
-        if isinstance(image, np.ndarray):
+            image = self.transform(image)
+        else:
             image = image.astype(np.float32) / 255.0
             image = (image - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
             image = torch.from_numpy(image).permute(2, 0, 1).float()

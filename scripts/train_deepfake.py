@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torchvision import transforms
 import timm
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -92,16 +93,36 @@ def main():
     if args.model == "efficientnet_b4" and args.image_size == 299:
         args.image_size = 380
 
+    # Data augmentation for training
+    train_transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(10),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        transforms.RandomResizedCrop(args.image_size, scale=(0.8, 1.0)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+
+    test_transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((args.image_size, args.image_size)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+
     # Dataset
     print("Loading training data...")
     train_dataset = FFDataset(
-        root=args.data_root, split="train", image_size=args.image_size
+        root=args.data_root, split="train", image_size=args.image_size,
+        transform=train_transform,
     )
     print(f"Training samples: {len(train_dataset)}")
 
     print("Loading test data...")
     test_dataset = FFDataset(
-        root=args.data_root, split="test", image_size=args.image_size
+        root=args.data_root, split="test", image_size=args.image_size,
+        transform=test_transform,
     )
     print(f"Test samples: {len(test_dataset)}")
 
@@ -120,7 +141,7 @@ def main():
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     # Save directory
