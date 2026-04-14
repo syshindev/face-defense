@@ -9,7 +9,7 @@ import mediapipe as mp
 from insightface.app import FaceAnalysis
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout, QFrame, QSizePolicy,
+    QVBoxLayout, QHBoxLayout, QFrame, QSizePolicy, QListWidget,
 )
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap, QFont, QColor, QPalette
@@ -55,17 +55,15 @@ class FaceDatabase:
                 best_name = name
         return best_name, float(best_sim)
 
-    def delete_last(self):
-        users = list(self.users.keys())
-        if not users:
+    def delete(self, name):
+        if name not in self.users:
             return None
-        last = users[-1]
-        emb_path = os.path.join(self.db_path, self.users[last])
+        emb_path = os.path.join(self.db_path, self.users[name])
         if os.path.exists(emb_path):
             os.remove(emb_path)
-        del self.users[last]
+        del self.users[name]
         self._save()
-        return last
+        return name
 
     def count(self):
         return len(self.users)
@@ -84,9 +82,12 @@ def compute_ear(landmarks, eye_indices):
 class MainWindow(QMainWindow):
     def __init__(self, camera_id=0, ir_camera_id=-1):
         super().__init__()
-        self.setWindowTitle("Face Defense - Access Control System")
+        self.setWindowTitle("FACE DEFENSE // ACCESS CONTROL")
         self.setMinimumSize(1000, 600)
-        self.setStyleSheet("background-color: #1e1e1e; color: white;")
+        self.setStyleSheet(
+            "background-color: #0c0c0c; color: #c0c0c0; "
+            "font-family: 'Consolas', 'Courier New', monospace;"
+        )
 
         # Models
         self.face_app = FaceAnalysis(
@@ -138,13 +139,13 @@ class MainWindow(QMainWindow):
         self.camera_label = QLabel()
         self.camera_label.setMinimumSize(640, 480)
         self.camera_label.setAlignment(Qt.AlignCenter)
-        self.camera_label.setStyleSheet("background-color: #000; border: 1px solid #333;")
+        self.camera_label.setStyleSheet("background-color: #000; border: 2px solid #2a2a2a;")
         main_layout.addWidget(self.camera_label, stretch=3)
 
         # Right: Result panel
         right_panel = QFrame()
         right_panel.setStyleSheet(
-            "background-color: #2a2a2a; border: 1px solid #333; border-radius: 8px;"
+            "background-color: #111111; border: 2px solid #2a2a2a;"
         )
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(20, 20, 20, 20)
@@ -152,22 +153,24 @@ class MainWindow(QMainWindow):
 
         # Title
         title = QLabel("ACCESS CONTROL")
-        title.setFont(QFont("Arial", 16, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
+        title.setFont(QFont("Consolas", 12, QFont.Bold))
+        title.setAlignment(Qt.AlignLeft)
+        title.setStyleSheet("color: #ffaa00; border: none;")
         right_layout.addWidget(title)
 
         # Separator
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.HLine)
-        sep1.setStyleSheet("color: #444;")
+        sep1.setStyleSheet("color: #333; border: none;")
         right_layout.addWidget(sep1)
 
         # Status badge
-        self.status_label = QLabel("WAITING")
-        self.status_label.setFont(QFont("Arial", 14, QFont.Bold))
+        self.status_label = QLabel("STANDBY")
+        self.status_label.setFont(QFont("Consolas", 13, QFont.Bold))
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet(
-            "background-color: #555; color: white; padding: 10px; border-radius: 5px;"
+            "background-color: #1a1a1a; color: #888; padding: 10px; "
+            "border: 1px solid #333;"
         )
         right_layout.addWidget(self.status_label)
 
@@ -192,30 +195,39 @@ class MainWindow(QMainWindow):
         # Separator
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.HLine)
-        sep2.setStyleSheet("color: #444;")
+        sep2.setStyleSheet("color: #333; border: none;")
         right_layout.addWidget(sep2)
 
-        # Registered count
+        # Registered users
         self.reg_label = QLabel(f"Registered: {self.db.count()}")
-        self.reg_label.setFont(QFont("Arial", 10))
-        self.reg_label.setStyleSheet("color: #888;")
+        self.reg_label.setFont(QFont("Consolas", 10))
+        self.reg_label.setStyleSheet("color: #ffaa00; border: none;")
         right_layout.addWidget(self.reg_label)
+
+        self.user_list = QListWidget()
+        self.user_list.setMaximumHeight(100)
+        self.user_list.setStyleSheet(
+            "background-color: #0c0c0c; color: #ffaa00; border: 1px solid #333; "
+            "font-size: 11px; padding: 2px; font-family: 'Consolas';"
+        )
+        self._update_user_list()
+        right_layout.addWidget(self.user_list)
 
         # Buttons
         btn_layout = QHBoxLayout()
 
-        self.btn_register = QPushButton("Register")
+        self.btn_register = QPushButton("[ REGISTER ]")
         self.btn_register.setStyleSheet(
-            "background-color: #2196F3; color: white; padding: 8px 16px; "
-            "border: none; border-radius: 4px; font-size: 12px;"
+            "background-color: #1a1a1a; color: #ffaa00; padding: 8px 16px; "
+            "border: 1px solid #ffaa00; font-size: 11px; font-family: 'Consolas';"
         )
         self.btn_register.clicked.connect(self.register_face)
         btn_layout.addWidget(self.btn_register)
 
-        self.btn_delete = QPushButton("Delete")
+        self.btn_delete = QPushButton("[ DELETE ]")
         self.btn_delete.setStyleSheet(
-            "background-color: #f44336; color: white; padding: 8px 16px; "
-            "border: none; border-radius: 4px; font-size: 12px;"
+            "background-color: #1a1a1a; color: #ff3333; padding: 8px 16px; "
+            "border: 1px solid #ff3333; font-size: 11px; font-family: 'Consolas';"
         )
         self.btn_delete.clicked.connect(self.delete_face)
         btn_layout.addWidget(self.btn_delete)
@@ -225,14 +237,15 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(right_panel, stretch=1)
 
     def _create_info_label(self, title, value):
-        widget = QLabel(f"<span style='color:#888; font-size:11px;'>{title}</span><br>"
-                        f"<span style='font-size:13px;'>{value}</span>")
+        widget = QLabel(f"<span style='color:#666; font-size:10px;'>[ {title} ]</span><br>"
+                        f"<span style='font-size:13px; color:#aaa;'>{value}</span>")
         widget.setTextFormat(Qt.RichText)
+        widget.setStyleSheet("border: none;")
         return widget
 
-    def _update_info_label(self, label, title, value, color="white"):
+    def _update_info_label(self, label, title, value, color="#aaa"):
         label.setText(
-            f"<span style='color:#888; font-size:11px;'>{title}</span><br>"
+            f"<span style='color:#666; font-size:10px;'>[ {title} ]</span><br>"
             f"<span style='color:{color}; font-size:13px;'>{value}</span>"
         )
 
@@ -250,7 +263,7 @@ class MainWindow(QMainWindow):
         faces = self.face_app.get(frame)
 
         if len(faces) == 0:
-            self._set_status("WAITING", "#555", "No Face Detected")
+            self._set_status("STANDBY", "#555", "No Face Detected")
             self._update_info_label(self.user_label, "User", "-")
             self._update_info_label(self.sim_label, "Similarity", "-")
             self._update_info_label(self.live_label, "Liveness", "-")
@@ -281,37 +294,37 @@ class MainWindow(QMainWindow):
                     self._set_status("UNAUTHORIZED", "#f44336", "Liveness Check Failed")
                 self._update_info_label(self.user_label, "User", "-")
                 self._update_info_label(self.sim_label, "Similarity", "-")
-                self._update_info_label(self.live_label, "Liveness", "FAIL", "#f44336")
+                self._update_info_label(self.live_label, "Liveness", "FAIL", "#ff3333")
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                cv2.putText(frame, "SPOOF", (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                cv2.putText(frame, "SPOOF", (x1, y1 - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
             else:
-                self._update_info_label(self.live_label, "Liveness", "PASS", "#4CAF50")
+                self._update_info_label(self.live_label, "Liveness", "PASS", "#00ff41")
 
                 if self.db.count() == 0:
-                    self._set_status("UNAUTHORIZED", "#FF9800", "No Registered Users")
+                    self._set_status("DENIED", "#ffaa00", "No Registered Users")
                     self._update_info_label(self.user_label, "User", "-")
                     self._update_info_label(self.sim_label, "Similarity", "-")
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
-                    cv2.putText(frame, "UNKNOWN", (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+                    cv2.putText(frame, "UNKNOWN", (x1, y1 - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
                 else:
                     name, sim = self.db.recognize(self.current_embedding)
                     self._update_info_label(self.sim_label, "Similarity", f"{sim:.2f}",
-                                            "#4CAF50" if sim >= 0.4 else "#f44336")
+                                            "#00ff41" if sim >= 0.4 else "#ff3333")
 
                     if sim >= 0.4:
-                        self._set_status("AUTHORIZED", "#4CAF50", "Authentication Success")
+                        self._set_status("AUTHORIZED", "#00ff41", "Authentication Success")
                         self._update_info_label(self.user_label, "User", name)
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(frame, "AUTHORIZED", (x1, y1 - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        cv2.putText(frame, "AUTHORIZED", (x1, y1 - 8),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                     else:
-                        self._set_status("UNAUTHORIZED", "#FF9800", "Unregistered User")
+                        self._set_status("DENIED", "#ff3333", "Unregistered User")
                         self._update_info_label(self.user_label, "User", "-")
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
-                        cv2.putText(frame, "UNKNOWN", (x1, y1 - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+                        cv2.putText(frame, "UNKNOWN", (x1, y1 - 8),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
 
         # Display frame
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -325,8 +338,8 @@ class MainWindow(QMainWindow):
     def _set_status(self, text, color, result):
         self.status_label.setText(text)
         self.status_label.setStyleSheet(
-            f"background-color: {color}; color: white; padding: 10px; "
-            f"border-radius: 5px; font-size: 14px; font-weight: bold;"
+            f"background-color: #1a1a1a; color: {color}; padding: 10px; "
+            f"border: 1px solid {color}; font-size: 13px; font-weight: bold;"
         )
         self._update_info_label(self.result_label, "Result", result)
 
@@ -369,21 +382,30 @@ class MainWindow(QMainWindow):
             return False, "print"
         return True, None
 
+    def _update_user_list(self):
+        self.user_list.clear()
+        for name in self.db.users.keys():
+            self.user_list.addItem(name)
+
     def register_face(self):
         if self.current_embedding is not None:
             idx = self.db.count() + 1
             name = f"User_{idx:03d}"
             self.db.register(name, self.current_embedding)
             self.reg_label.setText(f"Registered: {self.db.count()}")
+            self._update_user_list()
         else:
             self._set_status("WAITING", "#555", "No face to register")
 
     def delete_face(self):
-        deleted = self.db.delete_last()
-        if deleted:
+        selected = self.user_list.currentItem()
+        if selected:
+            name = selected.text()
+            self.db.delete(name)
             self.reg_label.setText(f"Registered: {self.db.count()}")
+            self._update_user_list()
         else:
-            self._set_status("WAITING", "#555", "No users to delete")
+            self._set_status("WAITING", "#555", "Select a user to delete")
 
     def closeEvent(self, event):
         self.cap.release()
