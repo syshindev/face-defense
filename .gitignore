@@ -41,5 +41,8 @@ Thumbs.db
 notebooks/*.jpg
 notebooks/*.png
 
+# Local demo samples (manual test inputs)
+test_samples/
+
 # Environment
 .env
