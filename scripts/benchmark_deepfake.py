@@ -8,6 +8,10 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import timm
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -28,6 +32,10 @@ def parse_args():
     parser.add_argument("--model", type=str, default="legacy_xception")
     parser.add_argument("--image_size", type=int, default=299)
     parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--plot_dir", type=str, default=None,
+                        help="If set, save ROC curve + score histogram plots here")
+    parser.add_argument("--plot_tag", type=str, default="",
+                        help="Suffix for plot filenames, e.g. '_v2'")
     return parser.parse_args()
 
 
@@ -90,6 +98,37 @@ def evaluate(model, df, data_root, image_size, batch_size, device):
     return np.array(labels_all), np.array(scores_all), np.array(sources_all)
 
 
+def plot_combined_roc(splits, save_path):
+    plt.figure(figsize=(7, 6))
+    for name, labels, scores in splits:
+        if len(labels) < 2 or len(np.unique(labels)) < 2:
+            continue
+        fpr, tpr, _ = roc_curve(labels, scores)
+        auc = compute_auc(labels, scores)
+        plt.plot(fpr, tpr, linewidth=2, label=f"{name} (AUC={auc:.3f})")
+    plt.plot([0, 1], [0, 1], "k--", alpha=0.4)
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("Deepfake ROC — overall / per-domain")
+    plt.legend(loc="lower right")
+    plt.grid(True, alpha=0.3)
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def plot_score_hist(labels, scores, save_path):
+    plt.figure(figsize=(7, 5))
+    plt.hist(scores[labels == 0], bins=50, alpha=0.6, label="Real", color="green")
+    plt.hist(scores[labels == 1], bins=50, alpha=0.6, label="Fake", color="red")
+    plt.xlabel("P(fake)")
+    plt.ylabel("Count")
+    plt.title("Score distribution (overall)")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
 def report(name, labels, scores):
     if len(labels) == 0:
         print(f"[{name}] no samples")
@@ -140,6 +179,19 @@ def main():
     for src in np.unique(sources):
         mask = sources == src
         report(src, labels[mask], scores[mask])
+
+    if args.plot_dir:
+        os.makedirs(args.plot_dir, exist_ok=True)
+        splits = [
+            ("overall", labels, scores),
+            ("ffpp", labels[ffpp_mask], scores[ffpp_mask]),
+            ("celebdf", labels[celeb_mask], scores[celeb_mask]),
+        ]
+        roc_path = os.path.join(args.plot_dir, f"roc{args.plot_tag}.png")
+        hist_path = os.path.join(args.plot_dir, f"score_hist{args.plot_tag}.png")
+        plot_combined_roc(splits, roc_path)
+        plot_score_hist(labels, scores, hist_path)
+        print(f"\nSaved plots: {roc_path}, {hist_path}")
 
 
 if __name__ == "__main__":
