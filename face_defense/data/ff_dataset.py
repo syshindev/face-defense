@@ -1,4 +1,5 @@
 import os
+import random
 from typing import Tuple
 
 import cv2
@@ -7,56 +8,59 @@ import torch
 from torch.utils.data import Dataset
 
 
-# Multi-class labels for FF++ dataset
-CLASS_MAP = {
-    "original": 0,
-    "Deepfakes": 1,
-    "Face2Face": 2,
-    "FaceSwap": 3,
-    "NeuralTextures": 4,
-    "FaceShifter": 5,
-    "DeepFakeDetection": 6,
+REAL_CLASSES = {"original"}
+FAKE_CLASSES = {
+    "Deepfakes", "Face2Face", "FaceSwap",
+    "NeuralTextures", "FaceShifter", "DeepFakeDetection",
 }
 
-NUM_CLASSES = len(CLASS_MAP)
+NUM_CLASSES = 2  # 0=real, 1=fake
 
 
 class FFDataset(Dataset):
-    # FaceForensics++ dataset loader (extracted frames)
+    # FaceForensics++ binary classifier (real vs fake)
     # Folder structure: {class_name}/*.jpg
-    # Labels: 0=real, 1-6=fake types
+    # Stratified 80/20 split per class with fixed seed
 
     def __init__(self, root: str, split: str = "train", image_size: int = 299,
-                 transform=None, train_ratio: float = 0.8):
+                 transform=None, train_ratio: float = 0.8, seed: int = 42):
         self.root = root
         self.split = split
         self.image_size = image_size
         self.transform = transform
         self.train_ratio = train_ratio
+        self.seed = seed
         self.samples = []
         self._load_samples()
 
     def _load_samples(self):
-        # Scan each class folder for images
-        for class_name, label in CLASS_MAP.items():
+        rng = random.Random(self.seed)
+
+        for class_name in sorted(os.listdir(self.root)):
             class_dir = os.path.join(self.root, class_name)
-            if not os.path.exists(class_dir):
+            if not os.path.isdir(class_dir):
                 continue
-            for fname in sorted(os.listdir(class_dir)):
-                if fname.lower().endswith((".jpg", ".png")):
-                    self.samples.append({
-                        "path": os.path.join(class_dir, fname),
-                        "label": label,
-                    })
 
-        # Split into train/test
-        all_samples = sorted(self.samples, key=lambda x: x["path"])
-        split_idx = int(len(all_samples) * self.train_ratio)
+            if class_name in REAL_CLASSES:
+                label = 0
+            elif class_name in FAKE_CLASSES:
+                label = 1
+            else:
+                continue
 
-        if self.split == "train":
-            self.samples = all_samples[:split_idx]
-        else:
-            self.samples = all_samples[split_idx:]
+            files = [
+                f for f in sorted(os.listdir(class_dir))
+                if f.lower().endswith((".jpg", ".png"))
+            ]
+            rng.shuffle(files)
+            split_idx = int(len(files) * self.train_ratio)
+            chosen = files[:split_idx] if self.split == "train" else files[split_idx:]
+
+            for fname in chosen:
+                self.samples.append({
+                    "path": os.path.join(class_dir, fname),
+                    "label": label,
+                })
 
     def __len__(self):
         return len(self.samples)
@@ -66,6 +70,7 @@ class FFDataset(Dataset):
         image = cv2.imread(sample["path"])
 
         if image is None:
+            print(f"WARN: unreadable image, substituting blank: {sample['path']}")
             image = np.zeros((self.image_size, self.image_size, 3), dtype=np.uint8)
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
