@@ -1,34 +1,56 @@
 # Face Defense
 
-Real-time face anti-spoofing and deepfake detection system for access control.
+Two related face-security tracks under one repo.
+
+## Scope — two independent tracks
+
+| Track | Input | Threat model | Deployment |
+|-------|-------|--------------|------------|
+| **1. Access Control Kiosk** | Live webcam (+ optional IR) | Physical spoof at the device: printed photos, screen replay, 3D masks | Real-time, kiosk terminal (GPU optional) |
+| **2. Deepfake Detection (research)** | Pre-recorded images/videos (internet, uploads, forensic evidence) | Synthetic/manipulated face content in media | Offline / batch analysis, not for kiosks |
+
+The two tracks share a repo because both are face-centric defenses, but their inputs, threats, and deployment contexts differ. Anti-spoofing + IR + blink secure the kiosk; the deepfake classifier studies media authentication.
 
 ## Features
 
-- **Face Registration & Recognition** — InsightFace embedding-based identity verification
-- **Anti-Spoofing** — Detects printed photos, screen replays, and 3D masks
-- **Liveness Detection** — EAR-based blink detection for passive liveness verification
-- **IR Camera Support** — Instant spoof detection with near-infrared camera (940nm)
-- **Deepfake Detection** — XceptionNet binary classifier (real vs fake) on FaceForensics++ c23
-- **GUI Demo** — PyQt5-based access control demo with real-time camera feed
+**Access Control Kiosk (Track 1):**
+- Face registration & recognition (InsightFace embeddings)
+- Anti-spoofing (CDCN depth-map analysis)
+- Passive liveness (EAR blink detection)
+- IR camera material check (940nm) — instant screen/print rejection
+- PyQt5 GUI demo with IR-mode toggle
+
+**Deepfake Detection (Track 2):**
+- XceptionNet binary (real vs fake) classifier on FaceForensics++ / Celeb-DF frames
+- Benchmark with per-domain / per-source breakdown and ROC/histogram plots
+- v1 vs v2 analysis isolating preprocessing alignment vs cross-dataset problem
 
 ## Architecture
 
+### Track 1 — kiosk pipeline (real-time)
+
 ```
-Input Frame
-    │
-    v
-Face Detection (InsightFace)
-    │
-    ├─── IR Camera ──> Instant Spoof Detection (screen/print)
-    │
-    ├─── Liveness ──> Blink Detection (EAR)
-    │
-    ├─── Anti-Spoof ──> CDCN Depth Map Analysis
-    │
-    └─── Deepfake ──> XceptionNet (binary real/fake)
-    │
-    v
-REAL / SPOOF + Face Recognition (Authorized / Unauthorized)
+Webcam frame ─┐                ┌─ IR frame
+              v                v
+       Face detection     Material check (IR ≥ 940nm)
+       (InsightFace)      ├─ too dark   → screen attack
+              │           └─ too flat   → print attack
+              v
+        Blink liveness (EAR, dual signal with IR)
+              │
+              v
+        Face embedding match (cosine vs registered users)
+              │
+              v
+        AUTHORIZED  |  UNAUTHORIZED  |  DENIED
+```
+
+### Track 2 — media authentication (offline)
+
+```
+Image / video file ──> Face crop ──> XceptionNet (binary) ──> P(fake)
+                                                          │
+                                      Report per-frame / per-source metrics
 ```
 
 ## Benchmark Results
@@ -49,17 +71,33 @@ REAL / SPOOF + Face Recognition (Authorized / Unauthorized)
 
 > Silent-FAS numbers predate the removal of its dependencies (commit `fefcd70`); kept for historical reference.
 
-### Deepfake Detection (XceptionNet, binary)
+### Deepfake Detection — Track 2 (research)
 
-Trained on FaceForensics++ c23 (extracted with `extract_frames.py`) with stratified 80/20 per-class split. Reached **Val Acc 92.35%** on the training distribution. Evaluated on a separately preprocessed FF++ / Celeb-DF test set (5,497 rows).
+Two training runs illustrate the preprocessing-brittleness of deepfake detectors. This model is for **media authentication**, not for the kiosk pipeline.
 
-| Split | ACC | AUC | EER |
-|-------|-----|-----|-----|
-| Overall                 | 0.5005 | 0.6664 | 0.3943 |
-| FF++ (in-domain)        | 0.4423 | 0.7085 | 0.3516 |
-| Celeb-DF (cross-domain) | 0.5356 | 0.6014 | 0.4401 |
+| Version | Training data | Train Val | Test (ff-celebdf-frames) | Notes |
+|---------|---------------|-----------|--------------------------|-------|
+| **v1**  | ff-c23-frames (our extraction) | 92.35% | 50.05% ACC, 0.6664 AUC | Preprocessing mismatch — fake-biased |
+| **v2**  | ff-celebdf-frames train CSV    | 95.50% | **95.63% ACC, 0.9929 AUC** | Matched preprocessing, both domains in-domain |
 
-> The gap between Val Acc (92%) and Test ACC (~50%) reflects a preprocessing mismatch: training frames were cropped with our extractor, the test set uses a different Kaggle face-crop pipeline. Per-source accuracy shows the model predicts fake almost everywhere (fake recall 94–98%, real recall 11–31%), a well-known cross-pipeline brittleness of deepfake detectors. AUC 0.71 on FF++ indicates the model learned useful signal but depends on upstream alignment. Retraining on the test-matched dataset (`ff-celebdf-frames` with its own train/val CSVs) is planned as a follow-up.
+#### Per-split breakdown
+
+| Split | v1 ACC | v1 AUC | v2 ACC | v2 AUC |
+|-------|--------|--------|--------|--------|
+| Overall                  | 0.5005 | 0.6664 | **0.9563** | **0.9929** |
+| FF++                     | 0.4423 | 0.7085 | **0.9450** | **0.9809** |
+| Celeb-DF                 | 0.5356 | 0.6014 | **0.9632** | **0.9957** |
+
+#### Per-source accuracy — the fake-bias is gone in v2
+
+| Source | v1 ACC | v2 ACC |
+|--------|--------|--------|
+| ffpp_fake  | 0.9461 | 0.9204 |
+| celeb_fake | 0.9839 | 0.9869 |
+| ffpp_real  | 0.3114 | **0.9513** |
+| celeb_real | 0.1073 | **0.9406** |
+
+> v1 reached 92.4% Val on FF++ c23 but collapsed to ~50% on `ff-celebdf-frames` because the face-crop pipeline differed. v2 retrains on `ff-celebdf-frames` directly so training and evaluation share one pipeline; real accuracy recovers from 11–31% to 94–95% and overall ACC jumps from 50% to 96%. This isolates **preprocessing alignment** as the dominant factor, separate from the harder cross-dataset problem. See [benchmark_eval.ipynb §4](notebooks/benchmark_eval.ipynb) for full analysis.
 
 ## Project Structure
 
@@ -137,8 +175,15 @@ python scripts/demo_webcam.py --camera 0
 # Anti-spoofing (CDCN)
 python scripts/train_cdcn.py --data_root data/CelebA_Spoof --epochs 50
 
-# Deepfake detection (XceptionNet, binary)
+# Deepfake v1 — folder mode (FF++ c23 extracted frames)
 python scripts/train_deepfake.py --data_root data/ff-c23-frames --model legacy_xception --epochs 30
+
+# Deepfake v2 — CSV mode (ff-celebdf-frames, matched preprocessing)
+python scripts/train_deepfake.py \
+  --data_root data/ff-celebdf-frames \
+  --train_csv data/ff-celebdf-frames/train_labels.csv \
+  --val_csv data/ff-celebdf-frames/val_labels.csv \
+  --model legacy_xception --epochs 30 --ckpt_suffix _v2
 ```
 
 ### Benchmark
@@ -146,23 +191,25 @@ python scripts/train_deepfake.py --data_root data/ff-c23-frames --model legacy_x
 # Anti-spoofing
 python scripts/benchmark_cdcn.py
 
-# Deepfake (FF++ + Celeb-DF test set)
+# Deepfake (FF++ + Celeb-DF test set) — add --plot_dir to save ROC/histograms
 python scripts/benchmark_deepfake.py \
   --data_root data/ff-celebdf-frames \
   --csv data/ff-celebdf-frames/test_labels.csv \
-  --checkpoint checkpoints/legacy_xception_best.pth
+  --checkpoint checkpoints/legacy_xception_v2_best.pth \
+  --plot_dir plots --plot_tag _v2
 ```
 
 See [benchmark results](notebooks/benchmark_eval.ipynb) for detailed evaluation.
 
-## Security Levels
+## Kiosk Security Levels (Track 1)
 
 | Level | Components | Detects | GPU |
 |-------|-----------|---------|-----|
-| Basic | Liveness (Blink) | Photo, video replay | Not required |
-| Standard | Liveness + IR Camera | + Print, display attacks | Not required |
-| Advanced | Liveness + IR + CDCN | + High-quality forgeries | Required |
-| Maximum | All + Deepfake Detection | + AI-generated faces | Required |
+| Basic    | Blink liveness          | Photo, video replay        | No  |
+| Standard | Blink + IR camera       | + Print, display attacks   | No  |
+| Advanced | Blink + IR + CDCN       | + High-quality forgeries   | Yes |
+
+> Deepfake detection (Track 2) is **not** part of the kiosk stack — the threat model (synthetic media) and deployment (offline analysis) do not match access-control terminals.
 
 ## Key Scripts
 
