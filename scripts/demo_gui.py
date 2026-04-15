@@ -108,11 +108,12 @@ class MainWindow(QMainWindow):
         # Camera
         self.cap = cv2.VideoCapture(camera_id)
         self.ir_cap = None
-        self.use_ir = ir_camera_id >= 0
-        if self.use_ir:
+        self.has_ir = ir_camera_id >= 0
+        if self.has_ir:
             self.ir_cap = cv2.VideoCapture(ir_camera_id)
             if not self.ir_cap.isOpened():
-                self.use_ir = False
+                self.has_ir = False
+        self.ir_mode_enabled = self.has_ir
 
         # Blink state
         self.EAR_CLOSE = 0.33
@@ -217,22 +218,21 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
 
         self.btn_register = QPushButton("[ REGISTER ]")
-        self.btn_register.setStyleSheet(
-            "background-color: #1a1a1a; color: #ffaa00; padding: 8px 16px; "
-            "border: 1px solid #ffaa00; font-size: 11px; font-family: 'Consolas';"
-        )
+        self.btn_register.setStyleSheet(self._button_qss("#ffaa00"))
         self.btn_register.clicked.connect(self.register_face)
         btn_layout.addWidget(self.btn_register)
 
         self.btn_delete = QPushButton("[ DELETE ]")
-        self.btn_delete.setStyleSheet(
-            "background-color: #1a1a1a; color: #ff3333; padding: 8px 16px; "
-            "border: 1px solid #ff3333; font-size: 11px; font-family: 'Consolas';"
-        )
+        self.btn_delete.setStyleSheet(self._button_qss("#ff3333"))
         self.btn_delete.clicked.connect(self.delete_face)
         btn_layout.addWidget(self.btn_delete)
 
         right_layout.addLayout(btn_layout)
+
+        self.btn_ir_toggle = QPushButton()
+        self.btn_ir_toggle.clicked.connect(self.toggle_ir_mode)
+        right_layout.addWidget(self.btn_ir_toggle)
+        self._refresh_ir_button()
 
         main_layout.addWidget(right_panel, stretch=1)
 
@@ -274,15 +274,7 @@ class MainWindow(QMainWindow):
             self.current_embedding = face.normed_embedding
 
             # Liveness check
-            is_live = False
-            spoof_type = None
-
-            if self.use_ir and self.ir_cap:
-                ir_ret, ir_frame = self.ir_cap.read()
-                if ir_ret:
-                    is_live, spoof_type = self._check_ir(ir_frame, (x1, y1, x2, y2))
-            else:
-                is_live, spoof_type = self._check_blink(frame, now)
+            is_live, spoof_type = self._check_liveness(frame, now, (x1, y1, x2, y2))
 
             if not is_live:
                 # Spoof
@@ -342,6 +334,51 @@ class MainWindow(QMainWindow):
             f"border: 1px solid {color}; font-size: 13px; font-weight: bold;"
         )
         self._update_info_label(self.result_label, "Result", result)
+
+    def _check_liveness(self, frame, now, bbox):
+        # IR mode OFF: blink only
+        # IR mode ON + camera available: blink AND IR material must both pass
+        # IR mode ON + no camera: blink only (toggle button shows warning color)
+        blink_live, blink_reason = self._check_blink(frame, now)
+
+        if not self.ir_mode_enabled:
+            return blink_live, blink_reason
+
+        if not (self.has_ir and self.ir_cap):
+            return blink_live, blink_reason
+
+        ir_ret, ir_frame = self.ir_cap.read()
+        if not ir_ret:
+            return blink_live, blink_reason
+
+        ir_live, ir_reason = self._check_ir(ir_frame, bbox)
+        if not ir_live:
+            return False, ir_reason
+        if not blink_live:
+            return False, blink_reason
+        return True, None
+
+    def toggle_ir_mode(self):
+        self.ir_mode_enabled = not self.ir_mode_enabled
+        self._refresh_ir_button()
+
+    def _refresh_ir_button(self):
+        if self.ir_mode_enabled:
+            if self.has_ir:
+                text, color = "[ IR MODE: ON ]", "#00d4ff"
+            else:
+                text, color = "[ IR MODE: NO CAMERA ]", "#ffaa00"
+        else:
+            text, color = "[ IR MODE: OFF ]", "#666"
+        self.btn_ir_toggle.setText(text)
+        self.btn_ir_toggle.setStyleSheet(self._button_qss(color))
+
+    @staticmethod
+    def _button_qss(color):
+        return (
+            f"background-color: #1a1a1a; color: {color}; padding: 8px 16px; "
+            f"border: 1px solid {color}; font-size: 11px; font-family: 'Consolas';"
+        )
 
     def _check_blink(self, frame, now):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
