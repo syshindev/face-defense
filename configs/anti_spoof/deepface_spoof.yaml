@@ -1,8 +1,0 @@
-# deepface anti-spoofing wrapper configuration
-model:
-  name: "deepface_spoof"
-  detector_backend: "retinaface"
-  threshold: 0.5
-
-inference:
-  device: "cuda:0"

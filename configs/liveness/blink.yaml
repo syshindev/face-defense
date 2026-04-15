@@ -1,9 +1,0 @@
-# Blink detection configuration
-model:
-  name: "blink_detector"
-  ear_threshold: 0.21
-  consec_frames: 3
-  temporal_window: 30
-
-inference:
-  device: "cpu"

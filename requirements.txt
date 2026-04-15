@@ -8,7 +8,6 @@ omegaconf>=2.3.0
 
 # Face detection & analysis
 insightface>=0.7.3
-deepface>=0.0.89
 mediapipe>=0.10.0
 onnxruntime-gpu>=1.16.0
 
