@@ -53,6 +53,26 @@ Image / video file ──> Face crop ──> XceptionNet (binary) ──> P(fake
                                       Report per-frame / per-source metrics
 ```
 
+## Demo
+
+### Track 2 — Deepfake Detector (Gradio)
+
+Terminal-themed web UI with Image / Video tabs, verdict badge (REAL / FAKE / MIXED), per-face bounding boxes, and a `Deepfake Probability Timeline` plot for video.
+
+![Gradio initial](docs/screenshots/gradio_01_initial.png)
+
+**Video analysis — face-swap detection success.** The Hader-as-Schwarzenegger clip is labeled `MIXED — CONTAINS DEEPFAKE SEGMENTS`, with the timeline showing per-frame P(fake) spiking on swap-face segments and dropping on the original actor.
+
+![Video MIXED](docs/screenshots/gradio_02_video_mixed.png)
+
+**Out-of-distribution limit (v2).** A StyleGAN-generated face (the person does not exist) is misclassified as REAL because v2 only saw face-swap deepfakes in training — whole-image GAN is a different generator family. This motivated v3 data expansion.
+
+![StyleGAN OOD](docs/screenshots/gradio_03_stylegan_ood.png)
+
+### Track 1 — Access Control Kiosk (PyQt5)
+
+Real-time webcam with face registration, CDCN anti-spoofing, blink-based liveness, and a runtime IR-mode toggle. _Screenshot pending — full demo captured after IR camera installation._
+
 ## Benchmark Results
 
 ### Anti-Spoofing (CDCN)
