@@ -29,6 +29,10 @@ def parse_args():
     parser.add_argument("--margin", type=float, default=0.2, help="Face crop margin (fraction of bbox)")
     parser.add_argument("--det_thresh", type=float, default=0.3,
                         help="InsightFace detection threshold (default 0.3 — lower than stock 0.5 to survive occlusions)")
+    parser.add_argument("--smooth_window", type=int, default=5,
+                        help="Video: rolling-average window (in analyzed samples) for per-face score smoothing")
+    parser.add_argument("--iou_match", type=float, default=0.3,
+                        help="IoU threshold for matching the same face across sampled frames")
     parser.add_argument("--save_annotated", type=str, default=None,
                         help="Video mode: save annotated video to this path")
     return parser.parse_args()
@@ -82,6 +86,62 @@ def verdict(score, threshold):
     return "FAKE" if score >= threshold else "REAL"
 
 
+def iou(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    inter = iw * ih
+    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+def match_track(tracks, bbox, iou_thresh):
+    best_i, best_iou = -1, 0.0
+    for i, t in enumerate(tracks):
+        s = iou(bbox, t["bbox"])
+        if s > best_iou:
+            best_iou, best_i = s, i
+    return best_i if best_iou >= iou_thresh else -1
+
+
+def update_tracks_from_frame(frame, tracks, face_app, model, image_size,
+                             margin, iou_thresh, smooth_window, device):
+    faces = face_app.get(frame)
+    new_tracks = []
+    used = set()
+    scores = []
+    for face in faces or []:
+        crop, bbox = crop_face(frame, face.bbox, margin)
+        if crop.size == 0:
+            continue
+        score = predict(model, crop, image_size, device)
+        scores.append(score)
+        idx = match_track(tracks, bbox, iou_thresh)
+        if idx >= 0 and idx not in used:
+            history = tracks[idx]["history"] + [score]
+            used.add(idx)
+        else:
+            history = [score]
+        history = history[-smooth_window:]
+        new_tracks.append({"bbox": bbox, "history": history})
+    return new_tracks, scores
+
+
+def draw_tracks(frame, tracks, threshold):
+    for t in tracks:
+        x1, y1, x2, y2 = t["bbox"]
+        smoothed = float(np.mean(t["history"]))
+        color = (0, 0, 255) if smoothed >= threshold else (0, 255, 0)
+        label = f"{verdict(smoothed, threshold)} {smoothed:.2f}"
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(frame, label, (x1, max(20, y1 - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+
 def analyze_image(args, face_app, model, device):
     img = cv2.imread(args.image)
     if img is None:
@@ -118,10 +178,10 @@ def analyze_video(args, face_app, model, device):
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(args.save_annotated, fourcc, fps, (w, h))
 
-    scores = []
+    raw_scores = []
     analyzed = 0
     frame_idx = 0
-    last_annotations = []  # list of (bbox, score) persisted between sampled frames
+    tracks = []
 
     while True:
         ret, frame = cap.read()
@@ -129,24 +189,15 @@ def analyze_video(args, face_app, model, device):
             break
 
         if frame_idx % args.frame_step == 0:
-            faces = face_app.get(frame)
-            last_annotations = []
-            if faces:
-                for face in faces:
-                    crop, (x1, y1, x2, y2) = crop_face(frame, face.bbox, args.margin)
-                    if crop.size == 0:
-                        continue
-                    score = predict(model, crop, args.image_size, device)
-                    scores.append(score)
-                    last_annotations.append(((x1, y1, x2, y2), score))
+            tracks, scores = update_tracks_from_frame(
+                frame, tracks, face_app, model, args.image_size, args.margin,
+                args.iou_match, args.smooth_window, device,
+            )
+            if scores:
+                raw_scores.extend(scores)
                 analyzed += 1
 
-        for (x1, y1, x2, y2), score in last_annotations:
-            color = (0, 0, 255) if score >= args.threshold else (0, 255, 0)
-            label = f"{verdict(score, args.threshold)} {score:.2f}"
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(frame, label, (x1, max(20, y1 - 8)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        draw_tracks(frame, tracks, args.threshold)
 
         if writer:
             writer.write(frame)
@@ -156,20 +207,20 @@ def analyze_video(args, face_app, model, device):
     if writer:
         writer.release()
 
-    if not scores:
+    if not raw_scores:
         print("No face detected in any sampled frame.")
         return
 
-    arr = np.array(scores)
+    arr = np.array(raw_scores)
     n_fake = int((arr >= args.threshold).sum())
     mean_p = float(arr.mean())
     summary_verdict = "FAKE" if mean_p >= args.threshold else "REAL"
-    print(f"\nAnalyzed frames: {analyzed}")
-    print(f"P(fake) mean={mean_p:.4f} median={np.median(arr):.4f} "
+    print(f"\nAnalyzed sampled-frame face predictions: {len(arr)} (frames={analyzed})")
+    print(f"P(fake) raw: mean={mean_p:.4f} median={np.median(arr):.4f} "
           f"min={arr.min():.4f} max={arr.max():.4f}")
-    print(f"Frames flagged fake (>= {args.threshold}): {n_fake}/{analyzed} "
-          f"({100*n_fake/analyzed:.1f}%)")
-    print(f"Overall verdict: {summary_verdict}")
+    print(f"Raw predictions flagged fake (>= {args.threshold}): {n_fake}/{len(arr)} "
+          f"({100*n_fake/len(arr):.1f}%)")
+    print(f"Overall verdict (raw mean): {summary_verdict}")
 
 
 def main():
