@@ -57,17 +57,26 @@ Image / video file ──> Face crop ──> XceptionNet (binary) ──> P(fake
 
 ### Track 2 — Deepfake Detector (Gradio)
 
-Terminal-themed web UI with Image / Video tabs, verdict badge (REAL / FAKE / MIXED), per-face bounding boxes, and a `Deepfake Probability Timeline` plot for video.
+Terminal-themed web UI with Image / Video tabs, verdict badge (REAL / FAKE / MIXED), and `Deepfake Probability Timeline` plot for video.
 
-![Gradio initial](docs/screenshots/gradio_01_initial.png)
+Same StyleGAN-generated face — v2 misclassifies as REAL, v3 correctly detects FAKE:
 
-**Video analysis — face-swap detection success.** The Hader-as-Schwarzenegger clip is labeled `MIXED — CONTAINS DEEPFAKE SEGMENTS`, with the timeline showing per-frame P(fake) spiking on swap-face segments and dropping on the original actor.
+| v2 (Before) | v3 (After) |
+|:-----------:|:----------:|
+| <img src="docs/screenshots/gradio_03_stylegan_ood.png" width="340"> | <img src="docs/screenshots/gradio_04_stylegan_v3_fixed.png" width="340"> |
 
-![Video MIXED](docs/screenshots/gradio_02_video_mixed.png)
+<details>
+<summary>More screenshots (UI, video analysis)</summary>
 
-**Out-of-distribution limit (v2).** A StyleGAN-generated face (the person does not exist) is misclassified as REAL because v2 only saw face-swap deepfakes in training — whole-image GAN is a different generator family. This motivated v3 data expansion.
+**Gradio UI**
 
-![StyleGAN OOD](docs/screenshots/gradio_03_stylegan_ood.png)
+<img src="docs/screenshots/gradio_01_initial.png" width="700" alt="Gradio UI">
+
+**Video analysis — face-swap detection success.** MIXED verdict with per-frame P(fake) timeline.
+
+<img src="docs/screenshots/gradio_02_video_mixed.png" width="700" alt="Video MIXED">
+
+</details>
 
 ### Track 1 — Access Control Kiosk (PyQt5)
 
