@@ -1,6 +1,4 @@
-<img src="assets/favicon.svg" width="40" align="center" alt="MALIN logo"/>
-
-# MALIN — Face Anti-Spoofing & Deepfake Detection
+# <img src="assets/favicon.svg" width="40" align="center" alt="MALIN logo"/> MALIN — Face Anti-Spoofing & Deepfake Detection
 
 ## Scope — two independent tracks
 
