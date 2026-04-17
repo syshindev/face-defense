@@ -1,6 +1,6 @@
-# Face Defense
+<img src="assets/favicon.svg" width="40" align="center" alt="MALIN logo"/>
 
-Two related face-security tracks under one repo.
+# MALIN — Face Anti-Spoofing & Deepfake Detection
 
 ## Scope — two independent tracks
 
@@ -109,6 +109,7 @@ Two training runs illustrate the preprocessing-brittleness of deepfake detectors
 | **v1**  | ff-c23-frames (our extraction) | 92.35% | 50.05% ACC, 0.6664 AUC (ff-celebdf) | Preprocessing mismatch — fake-biased |
 | **v2**  | ff-celebdf-frames train CSV    | 95.50% | **95.63% ACC, 0.9929 AUC** (ff-celebdf) | Matched preprocessing, both domains in-domain |
 | **v3**  | v2 data + StyleGAN3 + SDXL Diffusion + FFHQ real (~64k) | 97.16% | **97.60% ACC, 0.9972 AUC** (v3 test) | Adds whole-image GAN and diffusion categories |
+| **v3.2** | v3 + WildDeepfake 10k + compression augmentation (~66k) | 96.19% | 96.07% ACC, 0.9946 AUC | Video robustness — YouTube REAL→MIXED |
 
 #### Per-split breakdown
 
@@ -137,7 +138,9 @@ v2's remaining blind spot: it only saw face-swap deepfakes. Whole-image GAN outp
 - **SDXL Diffusion — 10,000 prompt-varied faces** (text-to-image, local generation)
 - **FFHQ — 10,000 real Flickr portraits** (balances the added fake samples)
 
-Training is run with `val AUC` best-criterion, label smoothing 0.1, and early stopping. See [docs/v3_runbook.md](docs/v3_runbook.md) for exact commands.
+Training is run with `val AUC` best-criterion, label smoothing 0.1, and early stopping.
+
+**v3.2** further adds [WildDeepfake](https://huggingface.co/datasets/xingjunm/WildDeepfake) (5k real + 5k fake from real internet deepfake videos) and compression-robustness augmentation (random JPEG quality 30–95, Gaussian blur, downscale–upscale). This trades ~2.6 pp of face-swap accuracy for video-level detection: a YouTube face-swap clip previously classified as REAL is now correctly flagged as MIXED.
 
 Per-category v3 results (pending):
 
