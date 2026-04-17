@@ -24,6 +24,19 @@ IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
+def source_category(source):
+    s = source.lower()
+    if s.startswith("ffpp") or s.startswith("celeb_fake") or s.startswith("celeb_real"):
+        return "face_swap"
+    if "stylegan" in s:
+        return "gan"
+    if "diffusion" in s or "sdxl" in s or "flux" in s:
+        return "diffusion"
+    if "ffhq" in s or s == "real":
+        return "real"
+    return "other"
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Benchmark deepfake detector on ff-celebdf-frames")
     parser.add_argument("--data_root", type=str, default="data/ff-celebdf-frames")
@@ -36,6 +49,13 @@ def parse_args():
                         help="If set, save ROC curve + score histogram plots here")
     parser.add_argument("--plot_tag", type=str, default="",
                         help="Suffix for plot filenames, e.g. '_v2'")
+    parser.add_argument("--compare_checkpoint", type=str, default=None,
+                        help="If set, evaluate a second checkpoint on the same data "
+                             "and print a side-by-side per-category comparison")
+    parser.add_argument("--compare_label", type=str, default="v2",
+                        help="Short label for the comparison checkpoint (e.g. 'v2')")
+    parser.add_argument("--main_label", type=str, default="v3",
+                        help="Short label for the main checkpoint")
     return parser.parse_args()
 
 
@@ -169,11 +189,19 @@ def main():
     print("\n=== Overall ===")
     report("overall", labels, scores)
 
-    print("\n=== Per-domain ===")
+    print("\n=== Per-domain (legacy ffpp / celebdf) ===")
     ffpp_mask = np.array([s.startswith("ffpp") for s in sources])
     celeb_mask = np.array([s.startswith("celeb") for s in sources])
-    report("ffpp (in-domain)", labels[ffpp_mask], scores[ffpp_mask])
-    report("celebdf (cross-domain)", labels[celeb_mask], scores[celeb_mask])
+    report("ffpp", labels[ffpp_mask], scores[ffpp_mask])
+    report("celebdf", labels[celeb_mask], scores[celeb_mask])
+
+    categories = np.array([source_category(s) for s in sources])
+    unique_cats = [c for c in ["face_swap", "gan", "diffusion", "real", "other"] if c in categories]
+    if len(unique_cats) > 2:
+        print("\n=== Per-category ===")
+        for cat in unique_cats:
+            mask = categories == cat
+            report(cat, labels[mask], scores[mask])
 
     print("\n=== Per-source ===")
     for src in np.unique(sources):
@@ -182,16 +210,60 @@ def main():
 
     if args.plot_dir:
         os.makedirs(args.plot_dir, exist_ok=True)
-        splits = [
-            ("overall", labels, scores),
-            ("ffpp", labels[ffpp_mask], scores[ffpp_mask]),
-            ("celebdf", labels[celeb_mask], scores[celeb_mask]),
-        ]
+        splits = [("overall", labels, scores)]
+        if ffpp_mask.any():
+            splits.append(("ffpp", labels[ffpp_mask], scores[ffpp_mask]))
+        if celeb_mask.any():
+            splits.append(("celebdf", labels[celeb_mask], scores[celeb_mask]))
+        for cat in unique_cats:
+            if cat == "real":
+                continue
+            mask = categories == cat
+            if len(np.unique(labels[mask])) == 2:
+                splits.append((cat, labels[mask], scores[mask]))
         roc_path = os.path.join(args.plot_dir, f"roc{args.plot_tag}.png")
         hist_path = os.path.join(args.plot_dir, f"score_hist{args.plot_tag}.png")
         plot_combined_roc(splits, roc_path)
         plot_score_hist(labels, scores, hist_path)
         print(f"\nSaved plots: {roc_path}, {hist_path}")
+
+    if args.compare_checkpoint:
+        print(f"\n=== Comparing checkpoints: {args.main_label} vs {args.compare_label} ===")
+        model2 = timm.create_model(args.model, pretrained=False, num_classes=2).to(device)
+        state2 = torch.load(args.compare_checkpoint, map_location=device)
+        model2.load_state_dict(state2)
+        model2.eval()
+        labels2, scores2, sources2 = evaluate(
+            model2, df, args.data_root, args.image_size, args.batch_size, device
+        )
+        categories2 = np.array([source_category(s) for s in sources2])
+
+        def stats(lbl, scr):
+            if len(lbl) == 0:
+                return float("nan"), float("nan")
+            try:
+                auc = compute_auc(lbl, scr)
+            except Exception:
+                auc = float("nan")
+            acc = ((scr >= 0.5).astype(int) == lbl).mean()
+            return acc, auc
+
+        print(f"{'Category':<14} {'N':>6} "
+              f"{args.main_label+' ACC':>9} {args.main_label+' AUC':>9} "
+              f"{args.compare_label+' ACC':>9} {args.compare_label+' AUC':>9}  Δ AUC")
+        for cat in unique_cats:
+            m = categories == cat
+            a1, u1 = stats(labels[m], scores[m])
+            m2 = categories2 == cat
+            a2, u2 = stats(labels2[m2], scores2[m2])
+            delta = u1 - u2 if not (np.isnan(u1) or np.isnan(u2)) else float("nan")
+            print(f"{cat:<14} {int(m.sum()):>6} "
+                  f"{a1:>9.4f} {u1:>9.4f} {a2:>9.4f} {u2:>9.4f}  {delta:+.4f}")
+        a1, u1 = stats(labels, scores)
+        a2, u2 = stats(labels2, scores2)
+        delta = u1 - u2 if not (np.isnan(u1) or np.isnan(u2)) else float("nan")
+        print(f"{'overall':<14} {len(labels):>6} "
+              f"{a1:>9.4f} {u1:>9.4f} {a2:>9.4f} {u2:>9.4f}  {delta:+.4f}")
 
 
 if __name__ == "__main__":

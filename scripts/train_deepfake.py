@@ -6,6 +6,7 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -14,6 +15,7 @@ import timm
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from face_defense.data.ff_dataset import FFDataset, CSVFrameDataset, NUM_CLASSES
+from face_defense.evaluation.metrics import compute_auc
 
 
 def parse_args():
@@ -29,6 +31,10 @@ def parse_args():
     parser.add_argument("--save_dir", type=str, default="checkpoints")
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--ckpt_suffix", type=str, default="", help="Suffix for checkpoint filename, e.g. '_v2'")
+    parser.add_argument("--label_smoothing", type=float, default=0.1,
+                        help="CrossEntropyLoss label smoothing (0 disables)")
+    parser.add_argument("--early_stop", type=int, default=0,
+                        help="Stop if val AUC does not improve for N epochs (0 disables)")
     return parser.parse_args()
 
 
@@ -67,6 +73,8 @@ def validate(model, loader, criterion, device):
     total_loss = 0.0
     correct = 0
     total = 0
+    all_labels = []
+    all_scores = []
 
     with torch.no_grad():
         for images, labels in loader:
@@ -81,9 +89,17 @@ def validate(model, loader, criterion, device):
             correct += (preds == labels).sum().item()
             total += labels.size(0)
 
+            probs = F.softmax(output, dim=1)[:, 1].detach().cpu().numpy()
+            all_scores.extend(probs.tolist())
+            all_labels.extend(labels.detach().cpu().numpy().tolist())
+
     avg_loss = total_loss / len(loader)
     accuracy = correct / total
-    return avg_loss, accuracy
+    try:
+        auc = compute_auc(np.array(all_labels), np.array(all_scores))
+    except ValueError:
+        auc = float("nan")
+    return avg_loss, accuracy, auc
 
 
 def main():
@@ -174,41 +190,50 @@ def main():
     w_fake = total / (2 * max(n_fake, 1))
     class_weights = torch.tensor([w_real, w_fake], device=device)
     print(f"Class counts: real={n_real} fake={n_fake} | weights=[{w_real:.3f}, {w_fake:.3f}]")
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=args.label_smoothing)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     # Save directory
     os.makedirs(args.save_dir, exist_ok=True)
 
-    # Training loop
-    best_acc = 0.0
+    # Training loop — best by val AUC, with optional early stopping
+    best_auc = 0.0
+    best_acc_at_best_auc = 0.0
+    epochs_since_improve = 0
+
     for epoch in range(1, args.epochs + 1):
         start = time.time()
 
         train_loss, train_acc = train_one_epoch(
             model, train_loader, criterion, optimizer, device, epoch
         )
-        val_loss, val_acc = validate(model, test_loader, criterion, device)
+        val_loss, val_acc, val_auc = validate(model, test_loader, criterion, device)
         scheduler.step()
 
         elapsed = time.time() - start
         print(f"Epoch {epoch}/{args.epochs} ({elapsed:.0f}s) | "
               f"Train Loss: {train_loss:.4f} Acc: {train_acc:.4f} | "
-              f"Val Loss: {val_loss:.4f} Acc: {val_acc:.4f}")
+              f"Val Loss: {val_loss:.4f} Acc: {val_acc:.4f} AUC: {val_auc:.4f}")
 
-        # Save best model
-        if val_acc > best_acc:
-            best_acc = val_acc
+        if val_auc > best_auc:
+            best_auc = val_auc
+            best_acc_at_best_auc = val_acc
+            epochs_since_improve = 0
             save_path = os.path.join(args.save_dir, f"{args.model}{args.ckpt_suffix}_best.pth")
             torch.save(model.state_dict(), save_path)
-            print(f"  -> Best model saved (Acc: {best_acc:.4f})")
+            print(f"  -> Best model saved (AUC: {best_auc:.4f} Acc: {val_acc:.4f})")
+        else:
+            epochs_since_improve += 1
 
-        # Save latest
         save_path = os.path.join(args.save_dir, f"{args.model}{args.ckpt_suffix}_latest.pth")
         torch.save(model.state_dict(), save_path)
 
-    print(f"\nTraining complete. Best Val Acc: {best_acc:.4f}")
+        if args.early_stop > 0 and epochs_since_improve >= args.early_stop:
+            print(f"\nEarly stop: no AUC improvement for {args.early_stop} epochs.")
+            break
+
+    print(f"\nTraining complete. Best Val AUC: {best_auc:.4f} (Acc: {best_acc_at_best_auc:.4f})")
 
 
 if __name__ == "__main__":

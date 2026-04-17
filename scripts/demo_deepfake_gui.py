@@ -28,7 +28,7 @@ TINT_BORDER_PX = 4
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Gradio GUI for deepfake detection")
-    parser.add_argument("--checkpoint", type=str, default="checkpoints/legacy_xception_v2_best.pth")
+    parser.add_argument("--checkpoint", type=str, default="checkpoints/legacy_xception_v3_best.pth")
     parser.add_argument("--model", type=str, default="legacy_xception")
     parser.add_argument("--image_size", type=int, default=299)
     parser.add_argument("--det_thresh", type=float, default=0.3)
@@ -274,6 +274,7 @@ TERMINAL_THEME = gr.themes.Base(
 CUSTOM_CSS = """
 .gradio-container {
     max-width: 1200px !important;
+    margin: 0 auto !important;
     font-family: 'Consolas', 'JetBrains Mono', 'Courier New', monospace !important;
 }
 footer { display: none !important; }
