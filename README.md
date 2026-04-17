@@ -95,10 +95,11 @@ Real-time webcam with face registration, CDCN anti-spoofing, blink-based livenes
 
 Two training runs illustrate the preprocessing-brittleness of deepfake detectors. This model is for **media authentication**, not for the kiosk pipeline.
 
-| Version | Training data | Train Val | Test (ff-celebdf-frames) | Notes |
-|---------|---------------|-----------|--------------------------|-------|
-| **v1**  | ff-c23-frames (our extraction) | 92.35% | 50.05% ACC, 0.6664 AUC | Preprocessing mismatch — fake-biased |
-| **v2**  | ff-celebdf-frames train CSV    | 95.50% | **95.63% ACC, 0.9929 AUC** | Matched preprocessing, both domains in-domain |
+| Version | Training data | Train Val | Test | Notes |
+|---------|---------------|-----------|------|-------|
+| **v1**  | ff-c23-frames (our extraction) | 92.35% | 50.05% ACC, 0.6664 AUC (ff-celebdf) | Preprocessing mismatch — fake-biased |
+| **v2**  | ff-celebdf-frames train CSV    | 95.50% | **95.63% ACC, 0.9929 AUC** (ff-celebdf) | Matched preprocessing, both domains in-domain |
+| **v3**  | v2 data + StyleGAN3 + SDXL Diffusion + FFHQ real (~64k) | 97.16% | **97.60% ACC, 0.9972 AUC** (v3 test) | Adds whole-image GAN and diffusion categories |
 
 #### Per-split breakdown
 
@@ -118,6 +119,25 @@ Two training runs illustrate the preprocessing-brittleness of deepfake detectors
 | celeb_real | 0.1073 | **0.9406** |
 
 > v1 reached 92.4% Val on FF++ c23 but collapsed to ~50% on `ff-celebdf-frames` because the face-crop pipeline differed. v2 retrains on `ff-celebdf-frames` directly so training and evaluation share one pipeline; real accuracy recovers from 11–31% to 94–95% and overall ACC jumps from 50% to 96%. This isolates **preprocessing alignment** as the dominant factor, separate from the harder cross-dataset problem. See [benchmark_eval.ipynb §4](notebooks/benchmark_eval.ipynb) for full analysis.
+
+#### v3 expansion (in progress)
+
+v2's remaining blind spot: it only saw face-swap deepfakes. Whole-image GAN outputs (StyleGAN) and diffusion generations (SDXL) are out-of-distribution and get misclassified as real. v3 adds three new sources to address this:
+
+- **StyleGAN3 — 10,000 generated faces** (FFHQ-pretrained, NVlabs NGC weights)
+- **SDXL Diffusion — 10,000 prompt-varied faces** (text-to-image, local generation)
+- **FFHQ — 10,000 real Flickr portraits** (balances the added fake samples)
+
+Training is run with `val AUC` best-criterion, label smoothing 0.1, and early stopping. See [docs/v3_runbook.md](docs/v3_runbook.md) for exact commands.
+
+Per-category v3 results (pending):
+
+| Category | Source | v2 ACC | v3 ACC |
+|----------|--------|--------|--------|
+| Face-swap | ff-celebdf (FF++ + Celeb-DF) | 0.9563 | **0.9638** |
+| Whole-image GAN | StyleGAN3 holdout | 0.0594 (misclassified real) | **0.9990** |
+| Diffusion | SDXL holdout | 0.0099 (misclassified real) | **1.0000** |
+| Real control | FFHQ holdout | 0.8999 | **0.9960** |
 
 ## Project Structure
 
