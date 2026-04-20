@@ -21,7 +21,7 @@ The two tracks share a repo because both are face-centric defenses, but their in
 **Deepfake Detection (Track 2):**
 - XceptionNet binary (real vs fake) classifier on FaceForensics++ / Celeb-DF frames
 - Benchmark with per-domain / per-source breakdown and ROC/histogram plots
-- v1 vs v2 analysis isolating preprocessing alignment vs cross-dataset problem
+- v1 → v2 → v3 → v3.4 iterative improvement (preprocessing fix → OOD expansion → maximum data)
 
 ## Architecture
 
@@ -100,14 +100,14 @@ Real-time webcam with face registration, CDCN anti-spoofing, blink-based livenes
 
 ### Deepfake Detection — Track 2 (research)
 
-Two training runs illustrate the preprocessing-brittleness of deepfake detectors. This model is for **media authentication**, not for the kiosk pipeline.
+Five training iterations from preprocessing-fix through OOD-expansion to maximum-data. This model is for **media authentication**, not for the kiosk pipeline.
 
 | Version | Training data | Train Val | Test | Notes |
 |---------|---------------|-----------|------|-------|
 | **v1**  | ff-c23-frames (our extraction) | 92.35% | 50.05% ACC, 0.6664 AUC (ff-celebdf) | Preprocessing mismatch — fake-biased |
 | **v2**  | ff-celebdf-frames train CSV    | 95.50% | **95.63% ACC, 0.9929 AUC** (ff-celebdf) | Matched preprocessing, both domains in-domain |
 | **v3**  | v2 data + StyleGAN3 + SDXL Diffusion + FFHQ real (~64k) | 97.16% | **97.60% ACC, 0.9972 AUC** (v3 test) | Adds whole-image GAN and diffusion categories |
-| **v3.2** | v3 + WildDeepfake 10k + compression augmentation (~66k) | 96.19% | 96.07% ACC, 0.9946 AUC | Video robustness — YouTube REAL→MIXED |
+| **v3.4** | v3 + WildDeepfake + ff_video_crops + SD1.5 + CelebA-HQ (~108k) | 97.43% | **97.70% ACC, 0.9967 AUC** | Maximum data — 13 sources, all categories 96%+ |
 
 #### Per-split breakdown
 
@@ -128,7 +128,7 @@ Two training runs illustrate the preprocessing-brittleness of deepfake detectors
 
 > v1 reached 92.4% Val on FF++ c23 but collapsed to ~50% on `ff-celebdf-frames` because the face-crop pipeline differed. v2 retrains on `ff-celebdf-frames` directly so training and evaluation share one pipeline; real accuracy recovers from 11–31% to 94–95% and overall ACC jumps from 50% to 96%. This isolates **preprocessing alignment** as the dominant factor, separate from the harder cross-dataset problem. See [benchmark_eval.ipynb §4](notebooks/benchmark_eval.ipynb) for full analysis.
 
-#### v3 expansion (in progress)
+#### v3 expansion
 
 v2's remaining blind spot: it only saw face-swap deepfakes. Whole-image GAN outputs (StyleGAN) and diffusion generations (SDXL) are out-of-distribution and get misclassified as real. v3 adds three new sources to address this:
 
@@ -138,16 +138,22 @@ v2's remaining blind spot: it only saw face-swap deepfakes. Whole-image GAN outp
 
 Training is run with `val AUC` best-criterion, label smoothing 0.1, and early stopping.
 
-**v3.2** further adds [WildDeepfake](https://huggingface.co/datasets/xingjunm/WildDeepfake) (5k real + 5k fake from real internet deepfake videos) and compression-robustness augmentation (random JPEG quality 30–95, Gaussian blur, downscale–upscale). This trades ~2.6 pp of face-swap accuracy for video-level detection: a YouTube face-swap clip previously classified as REAL is now correctly flagged as MIXED.
+**v3.4** (final) combines all available data (108k, 13 sources) with compression augmentation (JPEG/blur/downscale), RandomErasing, and [WildDeepfake](https://huggingface.co/datasets/xingjunm/WildDeepfake) internet video crops. Achieves 97.70% overall ACC — the highest across all versions — with all categories at 96%+. New sources include SD 1.5 diffusion (100%), CelebA-HQ real (99.9%), and InsightFace-cropped FF++ video frames (96%).
 
-Per-category v3 results (pending):
+> **YouTube video limitation:** v3.4 achieves near-perfect accuracy on test images, but real-world YouTube videos remain challenging — h264 re-encoding destroys the subtle artifacts the model relies on. The model is positioned as an **image-level media authenticator**.
 
-| Category | Source | v2 ACC | v3 ACC |
-|----------|--------|--------|--------|
-| Face-swap | ff-celebdf (FF++ + Celeb-DF) | 0.9563 | **0.9638** |
-| Whole-image GAN | StyleGAN3 holdout | 0.0594 (misclassified real) | **0.9990** |
-| Diffusion | SDXL holdout | 0.0099 (misclassified real) | **1.0000** |
-| Real control | FFHQ holdout | 0.8999 | **0.9960** |
+Per-category results (v2 → v3 → v3.4):
+
+| Category | Source | v2 ACC | v3 ACC | v3.4 ACC |
+|----------|--------|--------|--------|----------|
+| Face-swap | ff-celebdf (FF++ + Celeb-DF) | 0.9563 | 0.9638 | **0.9609** |
+| Whole-image GAN | StyleGAN3 holdout | 0.0594 | 0.9990 | **0.9951** |
+| Diffusion (SDXL) | SDXL holdout | 0.0099 | 1.0000 | **1.0000** |
+| Diffusion (SD 1.5) | SD 1.5 holdout | — | — | **1.0000** |
+| Real (FFHQ) | FFHQ holdout | 0.8999 | 0.9960 | **0.9979** |
+| Real (CelebA-HQ) | CelebA-HQ holdout | — | — | **0.9990** |
+| WildDeepfake | Internet video crops | — | — | **0.9980** |
+| FF++ video crops | InsightFace-cropped | — | — | **0.9607** |
 
 ## Project Structure
 
@@ -163,14 +169,16 @@ face-defense/
 │   └── evaluation/             # Metrics, visualization
 ├── scripts/
 │   ├── demo_gui.py             # PyQt5 access control demo
+│   ├── demo_deepfake.py        # CLI deepfake detector (image/video)
+│   ├── demo_deepfake_gui.py    # Gradio web UI deepfake detector
 │   ├── demo_access.py          # OpenCV access control demo
 │   ├── demo_webcam.py          # Webcam liveness demo
 │   ├── train_cdcn.py           # CDCN training
-│   ├── train_deepfake.py       # Deepfake training
+│   ├── train_deepfake.py       # Deepfake training (CSV + augmentation)
 │   ├── benchmark_cdcn.py       # CDCN benchmark
-│   ├── benchmark_deepfake.py   # Deepfake benchmark
-│   ├── finetune_cdcn_nuaa.py   # NUAA fine-tuning
-│   └── extract_frames.py       # FF++ frame extraction
+│   ├── benchmark_deepfake.py   # Deepfake benchmark (per-category)
+│   ├── extract_video_frames.py # FF++ video → InsightFace crop
+│   └── generate_stylegan_faces.py  # StyleGAN3 local generation
 └── notebooks/                  # Benchmark evaluation
 ```
 
@@ -266,14 +274,14 @@ See [benchmark results](notebooks/benchmark_eval.ipynb) for detailed evaluation.
 | Script | Description |
 |--------|-------------|
 | [demo_gui.py](scripts/demo_gui.py) | PyQt5 access control demo |
-| [demo_access.py](scripts/demo_access.py) | OpenCV access control demo |
-| [demo_webcam.py](scripts/demo_webcam.py) | Webcam liveness demo |
+| [demo_deepfake.py](scripts/demo_deepfake.py) | CLI deepfake detector (image/video) |
+| [demo_deepfake_gui.py](scripts/demo_deepfake_gui.py) | Gradio web UI deepfake detector |
 | [train_cdcn.py](scripts/train_cdcn.py) | CDCN anti-spoofing training |
-| [train_deepfake.py](scripts/train_deepfake.py) | Deepfake detection training |
+| [train_deepfake.py](scripts/train_deepfake.py) | Deepfake training (CSV + augmentation) |
 | [benchmark_cdcn.py](scripts/benchmark_cdcn.py) | CDCN benchmark evaluation |
-| [benchmark_deepfake.py](scripts/benchmark_deepfake.py) | Deepfake benchmark on FF++/Celeb-DF |
-| [finetune_cdcn_nuaa.py](scripts/finetune_cdcn_nuaa.py) | NUAA fine-tuning |
-| [extract_frames.py](scripts/extract_frames.py) | FF++ video frame extraction |
+| [benchmark_deepfake.py](scripts/benchmark_deepfake.py) | Deepfake benchmark (per-category + compare) |
+| [extract_video_frames.py](scripts/extract_video_frames.py) | FF++ video → InsightFace face crop |
+| [generate_stylegan_faces.py](scripts/generate_stylegan_faces.py) | StyleGAN3 local face generation |
 
 ## References
 
