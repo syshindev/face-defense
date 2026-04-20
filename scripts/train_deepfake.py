@@ -1,10 +1,12 @@
 import os
 import sys
 import argparse
+import random
 import time
 
 import numpy as np
 import torch
+from PIL import Image
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -102,6 +104,46 @@ def validate(model, loader, criterion, device):
     return avg_loss, accuracy, auc
 
 
+class _RandomJPEGCompression:
+    def __init__(self, quality_range=(30, 95)):
+        self.lo, self.hi = quality_range
+
+    def __call__(self, img):
+        import io
+        q = random.randint(self.lo, self.hi)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=q)
+        buf.seek(0)
+        return Image.open(buf).convert("RGB")
+
+
+class _RandomGaussianBlur:
+    def __init__(self, p=0.3, kernel_range=(3, 7)):
+        self.p = p
+        self.kernel_range = kernel_range
+
+    def __call__(self, img):
+        if random.random() < self.p:
+            k = random.choice(range(self.kernel_range[0], self.kernel_range[1] + 1, 2))
+            from PIL import ImageFilter
+            img = img.filter(ImageFilter.GaussianBlur(radius=k // 2))
+        return img
+
+
+class _RandomDownscaleUpscale:
+    def __init__(self, p=0.3, scale_range=(0.5, 0.9)):
+        self.p = p
+        self.scale_range = scale_range
+
+    def __call__(self, img):
+        if random.random() < self.p:
+            w, h = img.size
+            s = random.uniform(*self.scale_range)
+            small = img.resize((int(w * s), int(h * s)), Image.BILINEAR)
+            img = small.resize((w, h), Image.BILINEAR)
+        return img
+
+
 def main():
     args = parse_args()
 
@@ -113,14 +155,18 @@ def main():
     if args.model == "efficientnet_b4":
         args.image_size = 380
 
-    # Data augmentation for training
+    # Data augmentation for training — includes compression-robustness transforms
     train_transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.RandomHorizontalFlip(),
         transforms.RandomRotation(10),
         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
         transforms.RandomResizedCrop(args.image_size, scale=(0.8, 1.0)),
+        _RandomJPEGCompression(quality_range=(30, 95)),
+        _RandomGaussianBlur(p=0.3, kernel_range=(3, 7)),
+        _RandomDownscaleUpscale(p=0.3, scale_range=(0.5, 0.9)),
         transforms.ToTensor(),
+        transforms.RandomErasing(p=0.3, scale=(0.02, 0.15)),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 

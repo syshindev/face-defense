@@ -21,7 +21,7 @@ def parse_args():
     src = parser.add_mutually_exclusive_group(required=True)
     src.add_argument("--image", type=str, help="Path to a single image file")
     src.add_argument("--video", type=str, help="Path to a video file")
-    parser.add_argument("--checkpoint", type=str, default="checkpoints/legacy_xception_v3_best.pth")
+    parser.add_argument("--checkpoint", type=str, default="checkpoints/legacy_xception_v34_best.pth")
     parser.add_argument("--model", type=str, default="legacy_xception")
     parser.add_argument("--image_size", type=int, default=299)
     parser.add_argument("--frame_step", type=int, default=30, help="Video: analyze every N frames")

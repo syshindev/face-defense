@@ -28,7 +28,7 @@ TINT_BORDER_PX = 4
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Gradio GUI for deepfake detection")
-    parser.add_argument("--checkpoint", type=str, default="checkpoints/legacy_xception_v3_best.pth")
+    parser.add_argument("--checkpoint", type=str, default="checkpoints/legacy_xception_v34_best.pth")
     parser.add_argument("--model", type=str, default="legacy_xception")
     parser.add_argument("--image_size", type=int, default=299)
     parser.add_argument("--det_thresh", type=float, default=0.3)
@@ -503,4 +503,5 @@ with gr.Blocks(title="FACE DEFENSE // DEEPFAKE", theme=TERMINAL_THEME, css=CUSTO
 
 
 if __name__ == "__main__":
-    app.launch(server_port=ARGS.port, share=ARGS.share)
+    app.launch(server_port=ARGS.port, share=ARGS.share,
+               favicon_path="assets/favicon.svg")
