@@ -34,6 +34,13 @@ def parse_args():
     parser.add_argument("--wild_fake_dir", type=str, default="data/extra/wilddeepfake/fake")
     parser.add_argument("--video_real_dir", type=str, default="data/extra/ff_video_crops/real")
     parser.add_argument("--video_fake_dir", type=str, default="data/extra/ff_video_crops/fake")
+    parser.add_argument("--stylegan_h264_dir", type=str, default="data/extra/stylegan_h264")
+    parser.add_argument("--diffusion_h264_dir", type=str, default="data/extra/diffusion_h264")
+    parser.add_argument("--ffhq_h264_dir", type=str, default="data/extra/ffhq_h264")
+    parser.add_argument("--video_h264_real_dir", type=str, default="data/extra/ff_video_h264_real")
+    parser.add_argument("--video_h264_fake_dir", type=str, default="data/extra/ff_video_h264_fake")
+    parser.add_argument("--h264_count", type=int, default=0,
+                        help="Limit h264 augmented images per source (0 = use all)")
     parser.add_argument("--out_dir", type=str, default="data/v3_splits")
     parser.add_argument("--wild_count", type=int, default=0,
                         help="Limit WildDeepfake per class (0 = use all)")
@@ -100,6 +107,21 @@ def main():
         print(f"  -> ff_video_crops limited to {args.video_count} per class")
     extra_rows.extend(video_real)
     extra_rows.extend(video_fake)
+
+    h264_sources = [
+        (args.stylegan_h264_dir, 1, "stylegan_h264"),
+        (args.diffusion_h264_dir, 1, "diffusion_h264"),
+        (args.ffhq_h264_dir, 0, "ffhq_h264"),
+        (args.video_h264_real_dir, 0, "ff_video_h264_real"),
+        (args.video_h264_fake_dir, 1, "ff_video_h264_fake"),
+    ]
+    for h264_dir, label, source in h264_sources:
+        rows = scan_dir(h264_dir, label=label, source=source)
+        if args.h264_count > 0 and len(rows) > args.h264_count:
+            rng.shuffle(rows)
+            rows = rows[:args.h264_count]
+            print(f"  -> {source} limited to {args.h264_count}")
+        extra_rows.extend(rows)
 
     if not extra_rows:
         print("No extra data found. Exiting.")

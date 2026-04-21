@@ -140,7 +140,7 @@ Training is run with `val AUC` best-criterion, label smoothing 0.1, and early st
 
 **v3.4** (final) combines all available data (108k, 13 sources) with compression augmentation (JPEG/blur/downscale), RandomErasing, and [WildDeepfake](https://huggingface.co/datasets/xingjunm/WildDeepfake) internet video crops. Achieves 97.70% overall ACC — the highest across all versions — with all categories at 96%+. New sources include SD 1.5 diffusion (100%), CelebA-HQ real (99.9%), and InsightFace-cropped FF++ video frames (96%).
 
-> **YouTube video limitation:** v3.4 achieves near-perfect accuracy on test images, but real-world YouTube videos remain challenging — h264 re-encoding destroys the subtle artifacts the model relies on. The model is positioned as an **image-level media authenticator**.
+> **YouTube video limitation:** v3.4 achieves near-perfect accuracy on test images, but real-world YouTube videos remain challenging — h264 re-encoding destroys the subtle artifacts the model relies on. h264 pre-generation augmentation was also attempted (v3.5, 128k data) but single-frame h264 encoding does not replicate real video codec behavior (inter-frame prediction, motion compensation). The model is positioned as an **image-level media authenticator**. Temporal analysis (LSTM/Transformer over frame sequences) could address this by detecting inter-frame inconsistencies that survive compression — noted as a future research direction.
 
 Per-category results (v2 → v3 → v3.4):
 
