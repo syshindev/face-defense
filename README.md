@@ -104,7 +104,7 @@ Five training iterations from preprocessing-fix through OOD-expansion to maximum
 
 | Version | Training data | Train Val | Test | Notes |
 |---------|---------------|-----------|------|-------|
-| **v1**  | ff-c23-frames (our extraction) | 92.35% | 50.05% ACC, 0.6664 AUC (ff-celebdf) | Preprocessing mismatch — fake-biased |
+| **v1**  | ff-c23-frames (custom extraction) | 92.35% | 50.05% ACC, 0.6664 AUC (ff-celebdf) | Preprocessing mismatch — fake-biased |
 | **v2**  | ff-celebdf-frames train CSV    | 95.50% | **95.63% ACC, 0.9929 AUC** (ff-celebdf) | Matched preprocessing, both domains in-domain |
 | **v3**  | v2 data + StyleGAN3 + SDXL Diffusion + FFHQ real (~64k) | 97.16% | **97.60% ACC, 0.9972 AUC** (v3 test) | Adds whole-image GAN and diffusion categories |
 | **v3.4** | v3 + WildDeepfake + ff_video_crops + SD1.5 + CelebA-HQ (~108k) | 97.43% | **97.70% ACC, 0.9967 AUC** | Maximum data — 13 sources, all categories 96%+ |
