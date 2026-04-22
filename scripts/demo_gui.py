@@ -114,6 +114,12 @@ class MainWindow(QMainWindow):
             if not self.ir_cap.isOpened():
                 self.has_ir = False
         self.ir_mode_enabled = self.has_ir
+        self.blink_mode_enabled = True
+        self.texture_mode_enabled = True
+        self._texture_frame_count = 0
+        self._texture_last_result = (True, None)
+        self._spoof_history = []
+        self._SPOOF_WINDOW = 10
 
         # Blink state
         self.EAR_CLOSE = 0.33
@@ -234,6 +240,16 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.btn_ir_toggle)
         self._refresh_ir_button()
 
+        self.btn_blink_toggle = QPushButton()
+        self.btn_blink_toggle.clicked.connect(self.toggle_blink_mode)
+        right_layout.addWidget(self.btn_blink_toggle)
+        self._refresh_blink_button()
+
+        self.btn_texture_toggle = QPushButton()
+        self.btn_texture_toggle.clicked.connect(self.toggle_texture_mode)
+        right_layout.addWidget(self.btn_texture_toggle)
+        self._refresh_texture_button()
+
         main_layout.addWidget(right_panel, stretch=1)
 
     def _create_info_label(self, title, value):
@@ -336,26 +352,41 @@ class MainWindow(QMainWindow):
         self._update_info_label(self.result_label, "Result", result)
 
     def _check_liveness(self, frame, now, bbox):
-        # IR mode OFF: blink only
-        # IR mode ON + camera available: blink AND IR material must both pass
-        # IR mode ON + no camera: blink only (toggle button shows warning color)
-        blink_live, blink_reason = self._check_blink(frame, now)
+        is_spoof = False
+        spoof_reason = None
 
-        if not self.ir_mode_enabled:
-            return blink_live, blink_reason
+        # Texture check (instant, frame-level)
+        if self.texture_mode_enabled:
+            tex_live, tex_reason = self._check_texture(frame, bbox)
+            if not tex_live:
+                is_spoof = True
+                spoof_reason = tex_reason
 
-        if not (self.has_ir and self.ir_cap):
-            return blink_live, blink_reason
+        # IR check
+        if not is_spoof and self.ir_mode_enabled and self.has_ir and self.ir_cap:
+            ir_ret, ir_frame = self.ir_cap.read()
+            if ir_ret:
+                ir_live, ir_reason = self._check_ir(ir_frame, frame, bbox)
+                if not ir_live:
+                    is_spoof = True
+                    spoof_reason = ir_reason
 
-        ir_ret, ir_frame = self.ir_cap.read()
-        if not ir_ret:
-            return blink_live, blink_reason
+        # Smoothing — majority vote over last N frames
+        self._spoof_history.append(is_spoof)
+        if len(self._spoof_history) > self._SPOOF_WINDOW:
+            self._spoof_history.pop(0)
+        spoof_count = sum(self._spoof_history)
+        smoothed_spoof = spoof_count >= self._SPOOF_WINDOW // 2
 
-        ir_live, ir_reason = self._check_ir(ir_frame, bbox)
-        if not ir_live:
-            return False, ir_reason
-        if not blink_live:
-            return False, blink_reason
+        if smoothed_spoof:
+            return False, spoof_reason or "display"
+
+        # Blink check (slow, requires user action)
+        if self.blink_mode_enabled:
+            blink_live, blink_reason = self._check_blink(frame, now)
+            if not blink_live:
+                return False, blink_reason
+
         return True, None
 
     def toggle_ir_mode(self):
@@ -372,6 +403,94 @@ class MainWindow(QMainWindow):
             text, color = "[ IR MODE: OFF ]", "#666"
         self.btn_ir_toggle.setText(text)
         self.btn_ir_toggle.setStyleSheet(self._button_qss(color))
+
+    def toggle_blink_mode(self):
+        self.blink_mode_enabled = not self.blink_mode_enabled
+        self._refresh_blink_button()
+
+    def _refresh_blink_button(self):
+        if self.blink_mode_enabled:
+            text, color = "[ BLINK: ON ]", "#00ff41"
+        else:
+            text, color = "[ BLINK: OFF ]", "#666"
+        self.btn_blink_toggle.setText(text)
+        self.btn_blink_toggle.setStyleSheet(self._button_qss(color))
+
+    def toggle_texture_mode(self):
+        self.texture_mode_enabled = not self.texture_mode_enabled
+        self._refresh_texture_button()
+
+    def _refresh_texture_button(self):
+        if self.texture_mode_enabled:
+            text, color = "[ TEXTURE: ON ]", "#e040fb"
+        else:
+            text, color = "[ TEXTURE: OFF ]", "#666"
+        self.btn_texture_toggle.setText(text)
+        self.btn_texture_toggle.setStyleSheet(self._button_qss(color))
+
+    @staticmethod
+    def _compute_lbp(gray):
+        """Compute LBP (Local Binary Pattern) using vectorized numpy."""
+        padded = gray.astype(np.int16)
+        center = padded[1:-1, 1:-1]
+        offsets = [(-1, -1), (-1, 0), (-1, 1), (0, 1),
+                   (1, 1), (1, 0), (1, -1), (0, -1)]
+        lbp = np.zeros_like(center, dtype=np.uint8)
+        for bit, (dy, dx) in enumerate(offsets):
+            neighbor = padded[1 + dy:padded.shape[0] - 1 + dy,
+                              1 + dx:padded.shape[1] - 1 + dx]
+            lbp |= ((neighbor >= center).astype(np.uint8) << bit)
+        return lbp
+
+    def _check_texture(self, frame, bbox):
+        """LBP texture + Laplacian analysis for spoof detection."""
+        # Run every 3 frames, reuse last result otherwise
+        self._texture_frame_count += 1
+        if self._texture_frame_count % 3 != 0:
+            return self._texture_last_result
+
+        x1, y1, x2, y2 = bbox
+        h, w = frame.shape[:2]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+        roi = frame[y1:y2, x1:x2]
+        if roi.size == 0:
+            return False, "no_face"
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        gray = cv2.resize(gray, (64, 64))
+
+        # 1. LBP entropy — prints have higher entropy (paper grain/print dots)
+        lbp = self._compute_lbp(gray)
+        hist, _ = np.histogram(lbp.ravel(), bins=256, range=(0, 256))
+        hist = hist.astype(np.float32)
+        hist /= hist.sum() + 1e-8
+        lbp_entropy = -np.sum(hist[hist > 0] * np.log2(hist[hist > 0]))
+
+        # 2. Laplacian variance — screens have much higher sharpness
+        lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+        # 3. Skin color ratio in YCbCr
+        roi_resized = cv2.resize(roi, (64, 64))
+        ycrcb = cv2.cvtColor(roi_resized, cv2.COLOR_BGR2YCrCb)
+        cb = ycrcb[:, :, 2]
+        cr = ycrcb[:, :, 1]
+        skin_mask = (cb >= 77) & (cb <= 127) & (cr >= 133) & (cr <= 173)
+        skin_ratio = skin_mask.sum() / skin_mask.size
+
+        print(f"TEX lbp={lbp_entropy:.2f} skin={skin_ratio:.3f}")
+
+        if lbp_entropy < 5.90:
+            result = (False, "display")
+        elif lbp_entropy > 6.40 and skin_ratio < 0.40:
+            result = (False, "print")
+        elif skin_ratio < 0.15:
+            result = (False, "display")
+        else:
+            result = (True, None)
+
+        self._texture_last_result = result
+        return result
 
     @staticmethod
     def _button_qss(color):
@@ -404,18 +523,36 @@ class MainWindow(QMainWindow):
             return True, None
         return False, "blink"
 
-    def _check_ir(self, ir_frame, bbox):
+    def _check_ir(self, ir_frame, rgb_frame, bbox):
         x1, y1, x2, y2 = bbox
-        h, w = ir_frame.shape[:2]
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(w, x2), min(h, y2)
-        roi = ir_frame[y1:y2, x1:x2]
-        if roi.size == 0:
+
+        # IR ROI
+        ih, iw = ir_frame.shape[:2]
+        ix1, iy1 = max(0, x1), max(0, y1)
+        ix2, iy2 = min(iw, x2), min(ih, y2)
+        ir_roi = ir_frame[iy1:iy2, ix1:ix2]
+        if ir_roi.size == 0:
             return False, "no_face"
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY) if len(roi.shape) == 3 else roi
-        if gray.mean() < 30:
+        ir_gray = cv2.cvtColor(ir_roi, cv2.COLOR_BGR2GRAY) if len(ir_roi.shape) == 3 else ir_roi
+
+        # RGB ROI
+        rh, rw = rgb_frame.shape[:2]
+        rx1, ry1 = max(0, x1), max(0, y1)
+        rx2, ry2 = min(rw, x2), min(rh, y2)
+        rgb_roi = rgb_frame[ry1:ry2, rx1:rx2]
+        if rgb_roi.size == 0:
+            return False, "no_face"
+        rgb_gray = cv2.cvtColor(rgb_roi, cv2.COLOR_BGR2GRAY) if len(rgb_roi.shape) == 3 else rgb_roi
+
+        ir_mean = ir_gray.mean()
+        ir_std = ir_gray.std()
+        rgb_mean = rgb_gray.mean()
+        ratio = rgb_mean / max(ir_mean, 1.0)
+        print(f"IR={ir_mean:.1f} std={ir_std:.1f} RGB={rgb_mean:.1f} ratio={ratio:.2f}")
+
+        if ratio > 2.5:
             return False, "display"
-        if gray.std() < 15:
+        if ir_std < 20:
             return False, "print"
         return True, None
 
