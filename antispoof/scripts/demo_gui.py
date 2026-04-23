@@ -10,10 +10,10 @@ import mediapipe as mp
 from insightface.app import FaceAnalysis
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout, QFrame, QSizePolicy, QListWidget,
+    QVBoxLayout, QHBoxLayout, QFrame, QListWidget,
 )
 from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtGui import QImage, QPixmap, QFont, QColor, QPalette
+from PyQt5.QtGui import QImage, QPixmap, QFont
 
 from shared.face_utils import FaceDatabase, compute_ear, LEFT_EYE, RIGHT_EYE
 
@@ -59,10 +59,11 @@ class MainWindow(QMainWindow):
         self._texture_last_result = (True, None)
         self._spoof_history = []
         self._SPOOF_WINDOW = 10
+        self._no_face_since = 0.0
 
         # Blink state
-        self.EAR_CLOSE = 0.33
-        self.EAR_OPEN = 0.37
+        self.EAR_CLOSE = 0.31
+        self.EAR_OPEN = 0.34
         self.BLINK_TIMEOUT = 5.0
         self.was_closed = False
         self.close_time = 0.0
@@ -222,8 +223,13 @@ class MainWindow(QMainWindow):
             self._update_info_label(self.user_label, "User", "-")
             self._update_info_label(self.sim_label, "Similarity", "-")
             self._update_info_label(self.live_label, "Liveness", "-")
+            if self._no_face_since == 0.0:
+                self._no_face_since = now
+            elif now - self._no_face_since > 0.5:
+                self._spoof_history.clear()
             self.current_embedding = None
         else:
+            self._no_face_since = 0.0
             face = max(faces, key=lambda f: f.det_score)
             x1, y1, x2, y2 = face.bbox.astype(int)
             self.current_embedding = face.normed_embedding
@@ -315,9 +321,8 @@ class MainWindow(QMainWindow):
         if len(self._spoof_history) > self._SPOOF_WINDOW:
             self._spoof_history.pop(0)
         spoof_count = sum(self._spoof_history)
-        smoothed_spoof = spoof_count >= self._SPOOF_WINDOW // 2
-
-        if smoothed_spoof:
+        if (len(self._spoof_history) >= self._SPOOF_WINDOW
+                and spoof_count >= 5):
             return False, spoof_reason or "display"
 
         # Blink check (slow, requires user action)
@@ -382,7 +387,7 @@ class MainWindow(QMainWindow):
         return lbp
 
     def _check_texture(self, frame, bbox):
-        """LBP texture + Laplacian analysis for spoof detection."""
+        """LBP texture + skin color analysis for spoof detection."""
         # Run every 3 frames, reuse last result otherwise
         self._texture_frame_count += 1
         if self._texture_frame_count % 3 != 0:
@@ -406,10 +411,7 @@ class MainWindow(QMainWindow):
         hist /= hist.sum() + 1e-8
         lbp_entropy = -np.sum(hist[hist > 0] * np.log2(hist[hist > 0]))
 
-        # 2. Laplacian variance — screens have much higher sharpness
-        lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-
-        # 3. Skin color ratio in YCbCr
+        # 2. Skin color ratio in YCbCr
         roi_resized = cv2.resize(roi, (64, 64))
         ycrcb = cv2.cvtColor(roi_resized, cv2.COLOR_BGR2YCrCb)
         cb = ycrcb[:, :, 2]
@@ -417,14 +419,13 @@ class MainWindow(QMainWindow):
         skin_mask = (cb >= 77) & (cb <= 127) & (cr >= 133) & (cr <= 173)
         skin_ratio = skin_mask.sum() / skin_mask.size
 
-        print(f"TEX lbp={lbp_entropy:.2f} skin={skin_ratio:.3f}")
+        if os.environ.get("DEBUG"):
+            print(f"TEX lbp={lbp_entropy:.2f} skin={skin_ratio:.3f}")
 
-        if lbp_entropy < 5.90:
+        if lbp_entropy < 6.10:
             result = (False, "display")
-        elif lbp_entropy > 6.40 and skin_ratio < 0.40:
+        elif skin_ratio < 0.20:
             result = (False, "print")
-        elif skin_ratio < 0.15:
-            result = (False, "display")
         else:
             result = (True, None)
 
@@ -447,6 +448,8 @@ class MainWindow(QMainWindow):
             left_ear = compute_ear(landmarks, LEFT_EYE)
             right_ear = compute_ear(landmarks, RIGHT_EYE)
             avg_ear = (left_ear + right_ear) / 2.0
+            if os.environ.get("DEBUG"):
+                print(f"EAR={avg_ear:.3f}")
 
             if avg_ear < self.EAR_CLOSE:
                 if not self.was_closed:
@@ -487,12 +490,19 @@ class MainWindow(QMainWindow):
         ir_std = ir_gray.std()
         rgb_mean = rgb_gray.mean()
         ratio = rgb_mean / max(ir_mean, 1.0)
-        print(f"IR={ir_mean:.1f} std={ir_std:.1f} RGB={rgb_mean:.1f} ratio={ratio:.2f}")
+        if os.environ.get("DEBUG"):
+            print(f"IR={ir_mean:.1f} std={ir_std:.1f} RGB={rgb_mean:.1f} ratio={ratio:.2f}")
+        if ir_mean > 50:
+            self.btn_ir_toggle.setText(f"[ IR: ACTIVE ({ir_mean:.0f}) ]")
+            self.btn_ir_toggle.setStyleSheet(self._button_qss("#00d4ff"))
+        else:
+            self.btn_ir_toggle.setText(f"[ IR: INACTIVE ({ir_mean:.0f}) ]")
+            self.btn_ir_toggle.setStyleSheet(self._button_qss("#ff3333"))
 
-        if ratio > 2.5:
-            return False, "display"
-        if ir_std < 20:
+        if ratio < 1.00:
             return False, "print"
+        if ratio > 2.00:
+            return False, "display"
         return True, None
 
     def _update_user_list(self):

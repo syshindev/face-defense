@@ -1,40 +1,54 @@
 # <img src="assets/favicon.svg" width="40" align="center" alt="MALIN logo"/> MALIN — Face Anti-Spoofing & Deepfake Detection
 
-## Scope — two independent tracks
+## Scope — three tracks
 
 | Track | Input | Threat model | Deployment |
 |-------|-------|--------------|------------|
-| **1. Access Control Kiosk** | Live webcam (+ optional IR) | Physical spoof at the device: printed photos, screen replay, 3D masks | Real-time, kiosk terminal (GPU optional) |
-| **2. Deepfake Detection (research)** | Pre-recorded images/videos (internet, uploads, forensic evidence) | Synthetic/manipulated face content in media | Offline / batch analysis, not for kiosks |
-
-The two tracks share a repo because both are face-centric defenses, but their inputs, threats, and deployment contexts differ. Anti-spoofing + IR + blink secure the kiosk; the deepfake classifier studies media authentication.
+| **1. Access Control Kiosk** | Live webcam + IR camera | Physical spoof: printed photos, screen replay, video replay | Real-time, kiosk terminal (GPU optional) |
+| **2. Deepfake Detection (research)** | Pre-recorded images/videos | Synthetic/manipulated face content in media | Offline / batch analysis |
+| **3. Emotion Recognition** | Live webcam | Facial expression classification | Planned |
 
 ## Features
 
 **Access Control Kiosk (Track 1):**
 - Face registration & recognition (InsightFace embeddings)
-- Anti-spoofing (CDCN depth-map analysis)
-- Passive liveness (EAR blink detection)
-- IR camera material check (940nm) — instant screen/print rejection
-- PyQt5 GUI demo with IR-mode toggle
+- Multi-layer anti-spoofing:
+  - LBP texture analysis — instant screen detection
+  - YCbCr skin color check — instant print detection
+  - IR camera RGB/IR ratio — print and screen rejection (940nm)
+  - Passive liveness (EAR blink detection) — static image backup
+  - Majority-vote smoothing — stable detection without flickering
+- PyQt5 GUI with IR / Blink / Texture toggle buttons
+- Real-time IR status indicator (ACTIVE/INACTIVE)
 
 **Deepfake Detection (Track 2):**
 - XceptionNet binary (real vs fake) classifier on FaceForensics++ / Celeb-DF frames
 - Benchmark with per-domain / per-source breakdown and ROC/histogram plots
 - v1 → v2 → v3 → v3.4 iterative improvement (preprocessing fix → OOD expansion → maximum data)
 
+**Emotion Recognition (Track 3):**
+- Planned
+
 ## Architecture
 
 ### Track 1 — kiosk pipeline (real-time)
 
 ```
-Webcam frame ─┐                ┌─ IR frame
-              v                v
-       Face detection     Material check (IR ≥ 940nm)
-       (InsightFace)      ├─ too dark   → screen attack
-              │           └─ too flat   → print attack
+Webcam frame ─┐                     ┌─ IR frame
+              v                     v
+       Face detection          IR ratio check
+       (InsightFace)           ├─ ratio < 1.0  → print attack
+              │                └─ ratio > 2.0  → screen attack
               v
-        Blink liveness (EAR, dual signal with IR)
+        Texture check (LBP entropy + YCbCr skin ratio)
+        ├─ lbp < 6.10     → screen attack
+        └─ skin < 0.20    → print attack
+              │
+              v
+        Smoothing (5/10 majority vote)
+              │
+              v
+        Blink liveness (EAR, optional backup)
               │
               v
         Face embedding match (cosine vs registered users)
@@ -52,6 +66,14 @@ Image / video file ──> Face crop ──> XceptionNet (binary) ──> P(fake
 ```
 
 ## Demo
+
+### Track 1 — Access Control Kiosk (PyQt5)
+
+Real-time webcam with face registration, multi-layer anti-spoofing (LBP texture + skin color + IR ratio + blink), and runtime toggle buttons for each detection layer.
+
+| Authorized | Display Attack | Print Attack |
+|:----------:|:--------------:|:------------:|
+| <img src="docs/screenshots/kiosk_1776911530.png" width="260"> | <img src="docs/screenshots/kiosk_1776911609.png" width="260"> | <img src="docs/screenshots/kiosk_1776916366.png" width="260"> |
 
 ### Track 2 — Deepfake Detector (Gradio)
 
@@ -75,10 +97,6 @@ Same StyleGAN-generated face — v2 misclassifies as REAL, v3 correctly detects 
 <img src="docs/screenshots/gradio_02_video_mixed.png" width="700" alt="Video MIXED">
 
 </details>
-
-### Track 1 — Access Control Kiosk (PyQt5)
-
-Real-time webcam with face registration, CDCN anti-spoofing, blink-based liveness, and a runtime IR-mode toggle. _Screenshot pending — full demo captured after IR camera installation._
 
 ## Benchmark Results
 
@@ -209,13 +227,19 @@ pip install -e .
 python antispoof/scripts/demo_gui.py --camera 0
 ```
 
-The right panel includes an **IR MODE** toggle:
-- With `--ir_camera`: starts **ON** (blink AND IR material must both pass)
-- Without: starts **OFF** (blink-only fallback); toggling to ON shows an `IR MODE: NO CAMERA` warning state for demo purposes
+The right panel includes toggle buttons:
+- **IR MODE** — IR camera material check (requires `--ir_camera`), shows real-time ACTIVE/INACTIVE status
+- **BLINK** — EAR-based blink liveness detection
+- **TEXTURE** — LBP entropy + YCbCr skin color analysis
 
 ### GUI Demo with IR Camera
 ```bash
 python antispoof/scripts/demo_gui.py --camera 0 --ir_camera 1
+```
+
+### Debug Mode (show detection values)
+```bash
+DEBUG=1 python antispoof/scripts/demo_gui.py --camera 0 --ir_camera 1
 ```
 
 ### OpenCV Demo
@@ -260,13 +284,15 @@ python deepfake/scripts/benchmark_deepfake.py \
 
 See [benchmark results](notebooks/benchmark_eval.ipynb) for detailed evaluation.
 
-## Kiosk Security Levels (Track 1)
+## Anti-Spoofing Detection Layers (Track 1)
 
-| Level | Components | Detects | GPU |
-|-------|-----------|---------|-----|
-| Basic    | Blink liveness          | Photo, video replay        | No  |
-| Standard | Blink + IR camera       | + Print, display attacks   | No  |
-| Advanced | Blink + IR + CDCN       | + High-quality forgeries   | Yes |
+| Layer | Method | Detects | Speed |
+|-------|--------|---------|-------|
+| Texture | LBP entropy analysis | Screen replay (phone/monitor) | Instant |
+| Skin | YCbCr skin color ratio | Printed photos (B&W, color) | Instant |
+| IR | RGB/IR brightness ratio | Print + screen attacks | Instant |
+| Blink | EAR eye aspect ratio | All static images | 3-5 sec |
+| Smoothing | 5/10 majority vote | Reduces false positives | — |
 
 > Deepfake detection (Track 2) is **not** part of the kiosk stack — the threat model (synthetic media) and deployment (offline analysis) do not match access-control terminals.
 
