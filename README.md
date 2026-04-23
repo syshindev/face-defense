@@ -159,27 +159,28 @@ Per-category results (v2 → v3 → v3.4):
 
 ```
 face-defense/
-├── face_defense/
-│   ├── data/                   # Dataset loaders
-│   │   ├── celeba_spoof_dataset.py
-│   │   └── ff_dataset.py       # FF++ binary real/fake
-│   ├── models/
-│   │   └── anti_spoof/
-│   │       └── cdcn_model.py   # CDCN network
-│   └── evaluation/             # Metrics, visualization
-├── scripts/
-│   ├── demo_gui.py             # PyQt5 access control demo
-│   ├── demo_deepfake.py        # CLI deepfake detector (image/video)
-│   ├── demo_deepfake_gui.py    # Gradio web UI deepfake detector
-│   ├── demo_access.py          # OpenCV access control demo
-│   ├── demo_webcam.py          # Webcam liveness demo
-│   ├── train_cdcn.py           # CDCN training
-│   ├── train_deepfake.py       # Deepfake training (CSV + augmentation)
-│   ├── benchmark_cdcn.py       # CDCN benchmark
-│   ├── benchmark_deepfake.py   # Deepfake benchmark (per-category)
-│   ├── extract_video_frames.py # FF++ video → InsightFace crop
-│   └── generate_stylegan_faces.py  # StyleGAN3 local generation
-└── notebooks/                  # Benchmark evaluation
+├── shared/                     # Common utilities
+│   ├── metrics.py              # AUC, EER, ACER metrics
+│   ├── visualization.py        # ROC, score distribution plots
+│   ├── constants.py            # ImageNet normalization
+│   └── face_utils.py           # FaceDatabase, blink EAR, crop
+├── antispoof/                  # Track 1 — Kiosk anti-spoofing
+│   ├── models/cdcn_model.py    # CDCN network
+│   ├── data/                   # CelebA-Spoof dataset
+│   └── scripts/
+│       ├── demo_gui.py         # PyQt5 access control demo
+│       ├── train_cdcn.py       # CDCN training
+│       └── benchmark_cdcn.py   # CDCN benchmark
+├── deepfake/                   # Track 2 — Deepfake detection
+│   ├── data/                   # FF++, FFT, video datasets
+│   └── scripts/
+│       ├── demo_deepfake.py    # CLI deepfake detector
+│       ├── demo_deepfake_gui.py # Gradio web UI
+│       ├── train_deepfake.py   # Deepfake training
+│       └── benchmark_deepfake.py # Deepfake benchmark
+├── emotion/                    # Track 3 — Emotion recognition (planned)
+├── notebooks/                  # Benchmark evaluation
+└── assets/                     # MALIN branding
 ```
 
 ## Getting Started
@@ -205,7 +206,7 @@ pip install -e .
 
 ### GUI Demo (Access Control)
 ```bash
-python scripts/demo_gui.py --camera 0
+python antispoof/scripts/demo_gui.py --camera 0
 ```
 
 The right panel includes an **IR MODE** toggle:
@@ -214,30 +215,30 @@ The right panel includes an **IR MODE** toggle:
 
 ### GUI Demo with IR Camera
 ```bash
-python scripts/demo_gui.py --camera 0 --ir_camera 1
+python antispoof/scripts/demo_gui.py --camera 0 --ir_camera 1
 ```
 
 ### OpenCV Demo
 ```bash
-python scripts/demo_access.py --camera 0
+python antispoof/scripts/demo_access.py --camera 0
 ```
 
 ### Webcam Liveness Demo
 ```bash
-python scripts/demo_webcam.py --camera 0
+python antispoof/scripts/demo_webcam.py --camera 0
 ```
 
 ### Training
 
 ```bash
 # Anti-spoofing (CDCN)
-python scripts/train_cdcn.py --data_root data/CelebA_Spoof --epochs 50
+python antispoof/scripts/train_cdcn.py --data_root data/CelebA_Spoof --epochs 50
 
 # Deepfake v1 — folder mode (FF++ c23 extracted frames)
-python scripts/train_deepfake.py --data_root data/ff-c23-frames --model legacy_xception --epochs 30
+python deepfake/scripts/train_deepfake.py --data_root data/ff-c23-frames --model legacy_xception --epochs 30
 
 # Deepfake v2 — CSV mode (ff-celebdf-frames, matched preprocessing)
-python scripts/train_deepfake.py \
+python deepfake/scripts/train_deepfake.py \
   --data_root data/ff-celebdf-frames \
   --train_csv data/ff-celebdf-frames/train_labels.csv \
   --val_csv data/ff-celebdf-frames/val_labels.csv \
@@ -247,10 +248,10 @@ python scripts/train_deepfake.py \
 ### Benchmark
 ```bash
 # Anti-spoofing
-python scripts/benchmark_cdcn.py
+python antispoof/scripts/benchmark_cdcn.py
 
 # Deepfake (FF++ + Celeb-DF test set) — add --plot_dir to save ROC/histograms
-python scripts/benchmark_deepfake.py \
+python deepfake/scripts/benchmark_deepfake.py \
   --data_root data/ff-celebdf-frames \
   --csv data/ff-celebdf-frames/test_labels.csv \
   --checkpoint checkpoints/legacy_xception_v2_best.pth \
@@ -273,15 +274,15 @@ See [benchmark results](notebooks/benchmark_eval.ipynb) for detailed evaluation.
 
 | Script | Description |
 |--------|-------------|
-| [demo_gui.py](scripts/demo_gui.py) | PyQt5 access control demo |
-| [demo_deepfake.py](scripts/demo_deepfake.py) | CLI deepfake detector (image/video) |
-| [demo_deepfake_gui.py](scripts/demo_deepfake_gui.py) | Gradio web UI deepfake detector |
-| [train_cdcn.py](scripts/train_cdcn.py) | CDCN anti-spoofing training |
-| [train_deepfake.py](scripts/train_deepfake.py) | Deepfake training (CSV + augmentation) |
-| [benchmark_cdcn.py](scripts/benchmark_cdcn.py) | CDCN benchmark evaluation |
-| [benchmark_deepfake.py](scripts/benchmark_deepfake.py) | Deepfake benchmark (per-category + compare) |
-| [extract_video_frames.py](scripts/extract_video_frames.py) | FF++ video → InsightFace face crop |
-| [generate_stylegan_faces.py](scripts/generate_stylegan_faces.py) | StyleGAN3 local face generation |
+| [demo_gui.py](antispoof/scripts/demo_gui.py) | PyQt5 access control demo |
+| [demo_deepfake.py](deepfake/scripts/demo_deepfake.py) | CLI deepfake detector (image/video) |
+| [demo_deepfake_gui.py](deepfake/scripts/demo_deepfake_gui.py) | Gradio web UI deepfake detector |
+| [train_cdcn.py](antispoof/scripts/train_cdcn.py) | CDCN anti-spoofing training |
+| [train_deepfake.py](deepfake/scripts/train_deepfake.py) | Deepfake training (CSV + augmentation) |
+| [benchmark_cdcn.py](antispoof/scripts/benchmark_cdcn.py) | CDCN benchmark evaluation |
+| [benchmark_deepfake.py](deepfake/scripts/benchmark_deepfake.py) | Deepfake benchmark (per-category + compare) |
+| [extract_video_frames.py](deepfake/scripts/extract_video_frames.py) | FF++ video → InsightFace face crop |
+| [generate_stylegan_faces.py](deepfake/scripts/generate_stylegan_faces.py) | StyleGAN3 local face generation |
 
 ## References
 

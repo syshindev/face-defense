@@ -9,11 +9,10 @@ import torch.nn.functional as F
 import timm
 from insightface.app import FaceAnalysis
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-
-IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+from shared.constants import IMAGENET_MEAN, IMAGENET_STD
+from shared.face_utils import crop_face
 
 
 def parse_args():
@@ -51,18 +50,6 @@ def load_model(model_name, checkpoint, device):
     model.load_state_dict(state)
     model.eval()
     return model
-
-
-def crop_face(frame, bbox, margin):
-    x1, y1, x2, y2 = bbox
-    w, h = x2 - x1, y2 - y1
-    mx, my = int(w * margin), int(h * margin)
-    H, W = frame.shape[:2]
-    x1 = max(0, int(x1) - mx)
-    y1 = max(0, int(y1) - my)
-    x2 = min(W, int(x2) + mx)
-    y2 = min(H, int(y2) + my)
-    return frame[y1:y2, x1:x2], (x1, y1, x2, y2)
 
 
 def preprocess(face_bgr, image_size):

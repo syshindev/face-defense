@@ -1,8 +1,14 @@
 import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 import cv2
 import numpy as np
 import mediapipe as mp
+
+from shared.face_utils import compute_ear, LEFT_EYE, RIGHT_EYE
 
 
 def parse_args():
@@ -18,21 +24,6 @@ face_mesh = mp.solutions.face_mesh.FaceMesh(
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5,
 )
-
-# Eye landmark indices
-LEFT_EYE = [362, 385, 387, 263, 373, 380]
-RIGHT_EYE = [33, 160, 158, 133, 153, 144]
-
-
-def compute_ear(landmarks, eye_indices):
-    # Eye Aspect Ratio: drops when eyes close
-    pts = np.array([[landmarks[i].x, landmarks[i].y] for i in eye_indices])
-    v1 = np.linalg.norm(pts[1] - pts[5])
-    v2 = np.linalg.norm(pts[2] - pts[4])
-    h = np.linalg.norm(pts[0] - pts[3])
-    if h == 0:
-        return 0.0
-    return (v1 + v2) / (2.0 * h)
 
 
 def main():

@@ -5,10 +5,10 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from face_defense.models.anti_spoof.cdcn_model import CDCN
-from face_defense.evaluation.metrics import (
+from antispoof.models.cdcn_model import CDCN
+from shared.metrics import (
     compute_auc, compute_eer, compute_apcer, compute_bpcer, compute_acer,
 )
 

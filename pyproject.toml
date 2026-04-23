@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "face-defense"
-version = "0.1.0"
+version = "0.2.0"
 description = "Multi-layer face anti-spoofing and deepfake detection research framework"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 
 [tool.setuptools.packages.find]
-include = ["face_defense*"]
+include = ["shared*", "antispoof*", "deepfake*", "emotion*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

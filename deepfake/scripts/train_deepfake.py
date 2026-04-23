@@ -14,10 +14,10 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 import timm
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from face_defense.data.ff_dataset import FFDataset, CSVFrameDataset, NUM_CLASSES
-from face_defense.evaluation.metrics import compute_auc
+from deepfake.data.ff_dataset import FFDataset, CSVFrameDataset, NUM_CLASSES
+from shared.metrics import compute_auc
 
 
 def parse_args():

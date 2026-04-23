@@ -8,9 +8,9 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from face_defense.models.anti_spoof.cdcn_model import CDCN
+from antispoof.models.cdcn_model import CDCN
 
 
 class NUAADataset(Dataset):

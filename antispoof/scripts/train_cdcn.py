@@ -8,10 +8,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from face_defense.models.anti_spoof.cdcn_model import CDCN
-from face_defense.data.celeba_spoof_dataset import CelebASpoofDataset
+from antispoof.models.cdcn_model import CDCN
+from antispoof.data.celeba_spoof_dataset import CelebASpoofDataset
 
 
 def parse_args():

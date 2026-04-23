@@ -8,13 +8,10 @@ import torch
 import torch.nn.functional as F
 from insightface.app import FaceAnalysis
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from scripts.train_temporal import TemporalDeepfakeDetector
-
-
-IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+from deepfake.scripts.train_temporal import TemporalDeepfakeDetector
+from shared.constants import IMAGENET_MEAN, IMAGENET_STD
 
 
 def parse_args():

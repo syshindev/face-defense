@@ -14,14 +14,13 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve
 from tqdm import tqdm
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from face_defense.evaluation.metrics import compute_auc, compute_eer
+from shared.metrics import compute_auc, compute_eer
+from shared.constants import IMAGENET_MEAN, IMAGENET_STD
 
 
 KAGGLE_PREFIX = "/kaggle/input/ff-andcelebdf-frame-dataset-by-wish/"
-IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 def source_category(source):

@@ -11,10 +11,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import timm
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from face_defense.data.video_sequence_dataset import VideoSequenceDataset
-from face_defense.evaluation.metrics import compute_auc
+from deepfake.data.video_sequence_dataset import VideoSequenceDataset
+from shared.metrics import compute_auc
 
 
 def parse_args():
