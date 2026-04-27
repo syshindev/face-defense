@@ -6,7 +6,7 @@
 |-------|-------|--------------|------------|
 | **[1. Access Control Kiosk](antispoof/)** | Live webcam + IR camera | Physical spoof: printed photos, screen replay, video replay | Real-time, kiosk terminal (GPU optional) |
 | **[2. Deepfake Detection](deepfake/)** | Pre-recorded images/videos | Synthetic/manipulated face content in media | Offline / batch analysis |
-| **[3. Emotion Recognition](emotion/)** | Live webcam | Facial expression classification | Planned |
+| **[3. Emotion Recognition](emotion/)** | Live webcam | Facial expression classification | Real-time, CPU |
 
 ## Features
 
@@ -20,7 +20,8 @@
 - Gradio web UI with verdict badges and P(fake) timeline
 
 **Emotion Recognition (Track 3):**
-- Planned
+- Real-time 7-emotion classification (DeepFace + InsightFace)
+- PyQt5 GUI with emotion bar chart and smoothing
 
 ## Demo
 
@@ -55,6 +56,10 @@ Same StyleGAN-generated face — v2 misclassifies as REAL, v3 correctly detects 
 
 </details>
 
+### Track 3 — Emotion Recognition (PyQt5)
+
+Real-time 7-emotion classification (angry, disgust, fear, happy, sad, surprise, neutral) with InsightFace face detection and DeepFace emotion analysis. Background thread processing for smooth camera feed.
+
 ## Project Structure
 
 ```
@@ -71,7 +76,7 @@ face-defense/
 ├── deepfake/                   # Track 2 — Deepfake detection
 │   ├── data/                   # FF++, FFT, video datasets
 │   └── scripts/                # Demo, training, benchmark
-├── emotion/                    # Track 3 — Emotion recognition (planned)
+├── emotion/                    # Track 3 — Emotion recognition
 ├── notebooks/                  # Benchmark evaluation
 └── assets/                     # MALIN branding
 ```
