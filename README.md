@@ -131,4 +131,5 @@ See each track's README for detailed usage, training, and benchmark instructions
 ### Libraries
 - [InsightFace](https://github.com/deepinsight/insightface) — Face detection & recognition
 - [MediaPipe](https://github.com/google/mediapipe) — Face mesh & landmark detection
+- [DeepFace](https://github.com/serengil/deepface) — Face analysis (emotion, age, gender)
 - [timm](https://github.com/huggingface/pytorch-image-models) — PyTorch image models
