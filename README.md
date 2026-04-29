@@ -1,4 +1,6 @@
-# <img src="assets/favicon.svg" width="40" align="center" alt="MALIN logo"/> MALIN — Face Anti-Spoofing & Deepfake Detection
+# <img src="assets/favicon.svg" width="40" align="center" alt="MALIN logo"/> MALIN — Face Analysis Toolkit
+
+> Anti-spoofing · Deepfake detection · Emotion recognition
 
 ## Scope — three tracks
 
@@ -60,6 +62,10 @@ Same StyleGAN-generated face — v2 misclassifies as REAL, v3 correctly detects 
 ### Track 3 — Emotion Recognition (PyQt5)
 
 Real-time 7-emotion classification (angry, disgust, fear, happy, sad, surprise, neutral) with InsightFace face detection and DeepFace emotion analysis. Background thread processing for smooth camera feed.
+
+| Neutral | Happy | Surprise | Angry |
+|:-------:|:-----:|:--------:|:-----:|
+| <img src="docs/screenshots/emotion_neutral.png" width="220"> | <img src="docs/screenshots/emotion_happy.png" width="220"> | <img src="docs/screenshots/emotion_surprise.png" width="220"> | <img src="docs/screenshots/emotion_angry.png" width="220"> |
 
 ## Project Structure
 
