@@ -8,47 +8,55 @@ Real-time face authentication kiosk with multi-layer spoof detection.
 |-------|--------|---------|-------|
 | Texture | LBP entropy analysis | Screen replay (phone/monitor) | Instant |
 | Skin | YCbCr skin color ratio | Printed photos (B&W, color) | Instant |
+| Saturation | HSV saturation analysis | Distance-agnostic display vs print classification | Instant |
 | IR | RGB/IR brightness ratio | Print + screen attacks | Instant |
-| Blink | EAR eye aspect ratio | All static images | 3-5 sec |
+| Depth | RealSense D435 depth std (flatness) | Planar 2D spoofs — D435 only | Instant |
+| Blink | EAR eye aspect ratio (dynamic threshold by face size) | All static images | 3-5 sec |
 | Smoothing | 5/10 majority vote | Reduces false positives | — |
 
 ## Architecture
 
 ```
-Webcam frame ─┐                     ┌─ IR frame
-              v                     v
-       Face detection          IR ratio check
-       (InsightFace)           ├─ ratio < 1.0  → print attack
-              │                └─ ratio > 2.0  → screen attack
-              v
-        Texture check (LBP entropy + YCbCr skin ratio)
-        ├─ lbp < 6.10     → screen attack
-        └─ skin < 0.20    → print attack
-              │
-              v
-        Smoothing (5/10 majority vote)
-              │
-              v
-        Blink liveness (EAR, optional backup)
-              │
-              v
-        Face embedding match (cosine vs registered users)
-              │
-              v
-        AUTHORIZED  |  UNAUTHORIZED  |  DENIED
+Camera (cv2 webcam OR Intel RealSense D435)
+  │   produces RGB + IR (optional) + Depth (D435 only)
+  v
+Face detection — InsightFace, multi-face
+  │   D435 → closest face within --max_depth
+  │   cv2  → largest face (>= --min_face px)
+  v
+Texture check (HSV saturation → LBP → YCbCr skin)
+  │   sat > 120     → DISPLAY
+  │   sat < 55      → PRINT
+  │   skin < 0.20   → PRINT
+  │   lbp < 5.50    → DISPLAY or PRINT (sat tiebreak at 80)
+  v
+IR check
+  │   D435 → depth std < 8.0  AND  ratio > 0.80  → DISPLAY/PRINT
+  │   cv2  → ratio < 1.0 → PRINT,  ratio > 2.0 → DISPLAY
+  v
+Smoothing — 5/10 majority vote over recent frames
+  v
+Blink liveness — multi-face nose match, dynamic EAR 0.31~0.35 by face size
+  v
+Face embedding match — cosine vs registered users (threshold >= 0.4)
+  v
+AUTHORIZED  |  UNAUTHORIZED  |  DENIED
 ```
 
 ## Usage
 
 ```bash
-# GUI demo
+# Standard webcam (texture + blink only)
 python antispoof/scripts/demo_gui.py --camera 0
 
-# GUI demo with IR camera
+# Webcam + separate USB IR camera (legacy 2-camera setup)
 python antispoof/scripts/demo_gui.py --camera 0 --ir_camera 1
 
-# Debug mode (show detection values)
-DEBUG=1 python antispoof/scripts/demo_gui.py --camera 0 --ir_camera 1
+# Intel RealSense D435 (RGB + IR + Depth combined, 1 m max range)
+python antispoof/scripts/demo_gui.py --d435 --max_depth 1.0
+
+# Debug mode (print per-frame detection values)
+DEBUG=1 python antispoof/scripts/demo_gui.py --d435 --max_depth 1.0
 
 # OpenCV demo
 python antispoof/scripts/demo_access.py --camera 0
@@ -57,10 +65,17 @@ python antispoof/scripts/demo_access.py --camera 0
 python antispoof/scripts/demo_webcam.py --camera 0
 ```
 
+CLI flags:
+- `--camera N` — RGB webcam index (default 0)
+- `--ir_camera N` — separate USB IR camera index, for legacy 2-camera setups (default -1, off)
+- `--d435` — use Intel RealSense D435 (RGB + IR + Depth integrated, requires `pyrealsense2`)
+- `--max_depth M` — D435 only; ignore faces farther than M meters (0 = unlimited)
+- `--min_face PX` — non-D435 only; ignore faces narrower than PX pixels (default 120; auto-disabled with --d435)
+
 Toggle buttons on the right panel:
-- **IR MODE** — IR camera material check, shows real-time ACTIVE/INACTIVE status
+- **BLUR** — bbox-based background blur, keeps the target face crisp while obscuring bystanders
 - **BLINK** — EAR-based blink liveness detection
-- **TEXTURE** — LBP entropy + YCbCr skin color analysis
+- **TEXTURE** — HSV saturation + LBP entropy + YCbCr skin color analysis
 
 ## Training
 

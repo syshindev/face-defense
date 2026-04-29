@@ -17,6 +17,9 @@ Pillow>=10.0.0
 albumentations>=1.3.0
 decord>=0.6.0
 
+# Optional: Intel RealSense D435 support (run demo_gui with --d435)
+pyrealsense2>=2.54.1
+
 # Scientific computing
 numpy>=1.24.0
 scipy>=1.11.0

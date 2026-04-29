@@ -4,7 +4,7 @@
 
 | Track | Input | Threat model | Deployment |
 |-------|-------|--------------|------------|
-| **[1. Access Control Kiosk](antispoof/)** | Live webcam + IR camera | Physical spoof: printed photos, screen replay, video replay | Real-time, kiosk terminal (GPU optional) |
+| **[1. Access Control Kiosk](antispoof/)** | Live webcam, IR camera, or Intel RealSense D435 | Physical spoof: printed photos, screen replay, video replay | Real-time, kiosk terminal (GPU optional) |
 | **[2. Deepfake Detection](deepfake/)** | Pre-recorded images/videos | Synthetic/manipulated face content in media | Offline / batch analysis |
 | **[3. Emotion Recognition](emotion/)** | Live webcam | Facial expression classification | Real-time, CPU |
 
@@ -12,8 +12,9 @@
 
 **Access Control Kiosk (Track 1):**
 - Face registration & recognition (InsightFace embeddings)
-- Multi-layer anti-spoofing: LBP texture, YCbCr skin color, IR ratio, blink detection
-- PyQt5 GUI with IR / Blink / Texture toggle buttons
+- Multi-layer anti-spoofing: LBP texture, YCbCr skin color, HSV saturation, IR ratio, depth flatness (D435), blink detection
+- Intel RealSense D435 support — RGB + IR + Depth from a single device, with depth-based closest-face selection
+- PyQt5 GUI with Blur / Blink / Texture toggle buttons
 
 **Deepfake Detection (Track 2):**
 - XceptionNet binary classifier — v3.4: **97.70% ACC, 0.9967 AUC** (108k, 13 sources)
@@ -27,7 +28,7 @@
 
 ### Track 1 — Access Control Kiosk (PyQt5)
 
-Real-time webcam with face registration, multi-layer anti-spoofing (LBP texture + skin color + IR ratio + blink), and runtime toggle buttons for each detection layer.
+Real-time webcam with face registration, multi-layer anti-spoofing (LBP texture + YCbCr skin + HSV saturation + IR ratio + depth flatness + blink), and runtime toggle buttons for each detection layer. Optional Intel RealSense D435 input combines RGB / IR / Depth from a single device.
 
 | Authorized | Display Attack | Print Attack |
 |:----------:|:--------------:|:------------:|
@@ -65,6 +66,7 @@ Real-time 7-emotion classification (angry, disgust, fear, happy, sad, surprise, 
 ```
 face-defense/
 ├── shared/                     # Common utilities
+│   ├── camera.py               # Camera abstraction (cv2 / Intel RealSense D435)
 │   ├── metrics.py              # AUC, EER, ACER metrics
 │   ├── visualization.py        # ROC, score distribution plots
 │   ├── constants.py            # ImageNet normalization
@@ -102,6 +104,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 pip install insightface onnxruntime-gpu opencv-python PyQt5 timm
 pip install mediapipe==0.10.14
 pip install onnx==1.16.1
+pip install pyrealsense2          # optional, only needed for the --d435 flag
 
 # 3. Track 2 deepfake web UI
 pip install gradio
@@ -128,8 +131,13 @@ pip install -e .
 ### Quick Start
 
 ```bash
-# Track 1 — Access Control Kiosk (add --ir_camera <idx> if you have an IR camera)
+# Track 1 — Access Control Kiosk
+#   Standard webcam:
 python antispoof/scripts/demo_gui.py --camera 0
+#   Webcam + separate USB IR camera:
+python antispoof/scripts/demo_gui.py --camera 0 --ir_camera 1
+#   Intel RealSense D435 (RGB + IR + Depth, 1 m max range):
+python antispoof/scripts/demo_gui.py --d435 --max_depth 1.0
 
 # Track 2 — Deepfake Detector (Gradio web UI)
 python deepfake/scripts/demo_deepfake_gui.py

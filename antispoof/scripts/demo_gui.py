@@ -10,17 +10,21 @@ import mediapipe as mp
 from insightface.app import FaceAnalysis
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout, QFrame, QListWidget,
+    QVBoxLayout, QHBoxLayout, QFrame, QListWidget, QDialog, QLineEdit,
 )
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap, QFont
 
 from shared.face_utils import FaceDatabase, compute_ear, LEFT_EYE, RIGHT_EYE
+from shared.camera import create_camera
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, camera_id=0, ir_camera_id=-1):
+    def __init__(self, camera_id=0, ir_camera_id=-1, min_face=0,
+                 use_d435=False, max_depth=0.0):
         super().__init__()
+        self.min_face = min_face
+        self.max_depth = max_depth
         self.setWindowTitle("FACE DEFENSE // ACCESS CONTROL")
         self.setMinimumSize(1000, 600)
         self.setStyleSheet(
@@ -37,7 +41,7 @@ class MainWindow(QMainWindow):
 
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=False,
-            max_num_faces=1,
+            max_num_faces=3,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
         )
@@ -45,16 +49,13 @@ class MainWindow(QMainWindow):
         self.db = FaceDatabase()
 
         # Camera
-        self.cap = cv2.VideoCapture(camera_id)
-        self.ir_cap = None
-        self.has_ir = ir_camera_id >= 0
-        if self.has_ir:
-            self.ir_cap = cv2.VideoCapture(ir_camera_id)
-            if not self.ir_cap.isOpened():
-                self.has_ir = False
-        self.ir_mode_enabled = self.has_ir
+        self.camera = create_camera(use_d435=use_d435,
+                                    color_id=camera_id, ir_id=ir_camera_id)
+        self.has_ir = self.camera.has_ir
         self.blink_mode_enabled = True
         self.texture_mode_enabled = True
+        self.blur_mode_enabled = False
+        self._current_bbox = None
         self._texture_frame_count = 0
         self._texture_last_result = (True, None)
         self._spoof_history = []
@@ -62,7 +63,7 @@ class MainWindow(QMainWindow):
         self._no_face_since = 0.0
 
         # Blink state
-        self.EAR_CLOSE = 0.31
+        self.EAR_CLOSE = 0.33
         self.EAR_OPEN = 0.34
         self.BLINK_TIMEOUT = 5.0
         self.was_closed = False
@@ -72,6 +73,7 @@ class MainWindow(QMainWindow):
         # Current face for registration
         self.current_embedding = None
 
+        self._scale = 1.0
         self._init_ui()
         self._start_timer()
 
@@ -95,15 +97,16 @@ class MainWindow(QMainWindow):
             "background-color: #111111; border: 2px solid #2a2a2a;"
         )
         right_layout = QVBoxLayout(right_panel)
+        self._right_layout = right_layout
         right_layout.setContentsMargins(20, 20, 20, 20)
         right_layout.setSpacing(8)
 
         # Title
-        title = QLabel("ACCESS CONTROL")
-        title.setFont(QFont("Consolas", 12, QFont.Bold))
-        title.setAlignment(Qt.AlignLeft)
-        title.setStyleSheet("color: #ffaa00; border: none;")
-        right_layout.addWidget(title)
+        self.title_label = QLabel("ACCESS CONTROL")
+        self.title_label.setFont(QFont("Consolas", 12, QFont.Bold))
+        self.title_label.setAlignment(Qt.AlignLeft)
+        self.title_label.setStyleSheet("color: #ffaa00; border: none;")
+        right_layout.addWidget(self.title_label)
 
         # Separator
         sep1 = QFrame()
@@ -136,6 +139,11 @@ class MainWindow(QMainWindow):
         # Liveness
         self.live_label = self._create_info_label("Liveness", "-")
         right_layout.addWidget(self.live_label)
+
+        # Distance (D435 only)
+        if self.camera.is_d435:
+            self.depth_label = self._create_info_label("Distance", "-")
+            right_layout.addWidget(self.depth_label)
 
         right_layout.addStretch()
 
@@ -175,10 +183,10 @@ class MainWindow(QMainWindow):
 
         right_layout.addLayout(btn_layout)
 
-        self.btn_ir_toggle = QPushButton()
-        self.btn_ir_toggle.clicked.connect(self.toggle_ir_mode)
-        right_layout.addWidget(self.btn_ir_toggle)
-        self._refresh_ir_button()
+        self.btn_blur_toggle = QPushButton()
+        self.btn_blur_toggle.clicked.connect(self.toggle_blur_mode)
+        right_layout.addWidget(self.btn_blur_toggle)
+        self._refresh_blur_button()
 
         self.btn_blink_toggle = QPushButton()
         self.btn_blink_toggle.clicked.connect(self.toggle_blink_mode)
@@ -193,16 +201,22 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(right_panel, stretch=1)
 
     def _create_info_label(self, title, value):
-        widget = QLabel(f"<span style='color:#666; font-size:10px;'>[ {title} ]</span><br>"
-                        f"<span style='font-size:13px; color:#aaa;'>{value}</span>")
+        s = self._scale
+        t = int(10 * s)
+        v = int(13 * s)
+        widget = QLabel(f"<span style='color:#666; font-size:{t}px;'>[ {title} ]</span><br>"
+                        f"<span style='font-size:{v}px; color:#aaa;'>{value}</span>")
         widget.setTextFormat(Qt.RichText)
         widget.setStyleSheet("border: none;")
         return widget
 
     def _update_info_label(self, label, title, value, color="#aaa"):
+        s = self._scale
+        t = int(10 * s)
+        v = int(13 * s)
         label.setText(
-            f"<span style='color:#666; font-size:10px;'>[ {title} ]</span><br>"
-            f"<span style='color:{color}; font-size:13px;'>{value}</span>"
+            f"<span style='color:#666; font-size:{t}px;'>[ {title} ]</span><br>"
+            f"<span style='color:{color}; font-size:{v}px;'>{value}</span>"
         )
 
     def _start_timer(self):
@@ -211,7 +225,7 @@ class MainWindow(QMainWindow):
         self.timer.start(30)
 
     def update_frame(self):
-        ret, frame = self.cap.read()
+        ret, frame = self.camera.read_color()
         if not ret:
             return
 
@@ -219,10 +233,8 @@ class MainWindow(QMainWindow):
         faces = self.face_app.get(frame)
 
         if len(faces) == 0:
-            self._set_status("STANDBY", "#555", "No Face Detected")
-            self._update_info_label(self.user_label, "User", "-")
-            self._update_info_label(self.sim_label, "Similarity", "-")
-            self._update_info_label(self.live_label, "Liveness", "-")
+            self._current_bbox = None
+            self._reset_panel("No Face Detected")
             if self._no_face_since == 0.0:
                 self._no_face_since = now
             elif now - self._no_face_since > 0.5:
@@ -230,8 +242,47 @@ class MainWindow(QMainWindow):
             self.current_embedding = None
         else:
             self._no_face_since = 0.0
-            face = max(faces, key=lambda f: f.det_score)
+
+            # Distance limit: ignore faces smaller than min_face (far away)
+            if self.min_face > 0:
+                faces = [f for f in faces
+                         if (f.bbox[2] - f.bbox[0]) >= self.min_face]
+                if not faces:
+                    self._reset_panel("Out of Range")
+                    self._show_frame(frame)
+                    return
+
+            # D435: depth-based filter + selection (strip far faces before picking)
+            if self.camera.is_d435:
+                face_dists = []
+                for f in faces:
+                    fx1, fy1, fx2, fy2 = f.bbox.astype(int)
+                    fcx, fcy = (fx1 + fx2) // 2, (fy1 + fy2) // 2
+                    d = self.camera.get_depth_at(fcx, fcy)
+                    face_dists.append((f, d))
+
+                # Keep only faces within max_depth
+                if self.max_depth > 0:
+                    nearby = [(f, d) for f, d in face_dists if 0 < d <= self.max_depth]
+                else:
+                    nearby = [(f, d) for f, d in face_dists if d > 0]
+
+                if not nearby:
+                    self._reset_panel("Out of Range")
+                    self._show_frame(frame)
+                    return
+
+                # Pick the closest face
+                face, dist = min(nearby, key=lambda x: x[1])
+                if hasattr(self, 'depth_label'):
+                    self._update_info_label(self.depth_label, "Distance",
+                                            f"{dist:.2f} m", "#ffaa00")
+            else:
+                # Non-D435: pick the largest face by bbox width
+                face = max(faces, key=lambda f: f.bbox[2] - f.bbox[0])
+
             x1, y1, x2, y2 = face.bbox.astype(int)
+            self._current_bbox = (x1, y1, x2, y2)
             self.current_embedding = face.normed_embedding
 
             # Liveness check
@@ -240,17 +291,15 @@ class MainWindow(QMainWindow):
             if not is_live:
                 # Spoof
                 if spoof_type == "display":
-                    self._set_status("UNAUTHORIZED", "#f44336", "Display Attack Detected")
+                    self._set_status("UNAUTHORIZED", "#ff3333", "Display Attack Detected")
                 elif spoof_type == "print":
-                    self._set_status("UNAUTHORIZED", "#f44336", "Print Attack Detected")
+                    self._set_status("UNAUTHORIZED", "#ff3333", "Print Attack Detected")
                 else:
-                    self._set_status("UNAUTHORIZED", "#f44336", "Liveness Check Failed")
+                    self._set_status("UNAUTHORIZED", "#ff3333", "Liveness Check Failed")
                 self._update_info_label(self.user_label, "User", "-")
                 self._update_info_label(self.sim_label, "Similarity", "-")
                 self._update_info_label(self.live_label, "Liveness", "FAIL", "#ff3333")
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                cv2.putText(frame, "SPOOF", (x1, y1 - 8),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
             else:
                 self._update_info_label(self.live_label, "Liveness", "PASS", "#00ff41")
 
@@ -259,8 +308,6 @@ class MainWindow(QMainWindow):
                     self._update_info_label(self.user_label, "User", "-")
                     self._update_info_label(self.sim_label, "Similarity", "-")
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
-                    cv2.putText(frame, "UNKNOWN", (x1, y1 - 8),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
                 else:
                     name, sim = self.db.recognize(self.current_embedding)
                     self._update_info_label(self.sim_label, "Similarity", f"{sim:.2f}",
@@ -270,16 +317,27 @@ class MainWindow(QMainWindow):
                         self._set_status("AUTHORIZED", "#00ff41", "Authentication Success")
                         self._update_info_label(self.user_label, "User", name)
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(frame, "AUTHORIZED", (x1, y1 - 8),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                     else:
                         self._set_status("DENIED", "#ff3333", "Unregistered User")
                         self._update_info_label(self.user_label, "User", "-")
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
-                        cv2.putText(frame, "UNKNOWN", (x1, y1 - 8),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
 
-        # Display frame
+        self._show_frame(frame)
+
+    def _show_frame(self, frame):
+        if self.blur_mode_enabled and self._current_bbox is not None:
+            blurred = cv2.GaussianBlur(frame, (51, 51), 0)
+            x1, y1, x2, y2 = self._current_bbox
+            h, w = frame.shape[:2]
+            margin = int((x2 - x1) * 0.3)
+            bx1 = max(0, x1 - margin)
+            by1 = max(0, y1 - margin)
+            bx2 = min(w, x2 + margin)
+            by2 = min(h, y2 + margin)
+            blurred[by1:by2, bx1:bx2] = frame[by1:by2, bx1:bx2]
+            frame = blurred
+        elif self.blur_mode_enabled:
+            frame = cv2.GaussianBlur(frame, (51, 51), 0)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         img = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
@@ -288,11 +346,23 @@ class MainWindow(QMainWindow):
         )
         self.camera_label.setPixmap(scaled)
 
+    def _reset_panel(self, reason="No Face Detected"):
+        """Reset the panel to standby."""
+        self._set_status("STANDBY", "#555", reason)
+        self._update_info_label(self.user_label, "User", "-")
+        self._update_info_label(self.sim_label, "Similarity", "-")
+        self._update_info_label(self.live_label, "Liveness", "-")
+        if hasattr(self, 'depth_label'):
+            self._update_info_label(self.depth_label, "Distance", "-")
+
     def _set_status(self, text, color, result):
+        s = self._scale
+        pad = int(10 * s)
+        fs = int(13 * s)
         self.status_label.setText(text)
         self.status_label.setStyleSheet(
-            f"background-color: #1a1a1a; color: {color}; padding: 10px; "
-            f"border: 1px solid {color}; font-size: 13px; font-weight: bold;"
+            f"background-color: #1a1a1a; color: {color}; padding: {pad}px; "
+            f"border: 1px solid {color}; font-size: {fs}px; font-weight: bold;"
         )
         self._update_info_label(self.result_label, "Result", result)
 
@@ -307,9 +377,9 @@ class MainWindow(QMainWindow):
                 is_spoof = True
                 spoof_reason = tex_reason
 
-        # IR check
-        if not is_spoof and self.ir_mode_enabled and self.has_ir and self.ir_cap:
-            ir_ret, ir_frame = self.ir_cap.read()
+        # IR check (always on when available)
+        if not is_spoof and self.has_ir:
+            ir_ret, ir_frame = self.camera.read_ir()
             if ir_ret:
                 ir_live, ir_reason = self._check_ir(ir_frame, frame, bbox)
                 if not ir_live:
@@ -325,28 +395,25 @@ class MainWindow(QMainWindow):
                 and spoof_count >= 5):
             return False, spoof_reason or "display"
 
-        # Blink check (slow, requires user action)
+        # Blink check
         if self.blink_mode_enabled:
-            blink_live, blink_reason = self._check_blink(frame, now)
+            blink_live, blink_reason = self._check_blink(frame, now, bbox)
             if not blink_live:
                 return False, blink_reason
 
         return True, None
 
-    def toggle_ir_mode(self):
-        self.ir_mode_enabled = not self.ir_mode_enabled
-        self._refresh_ir_button()
+    def toggle_blur_mode(self):
+        self.blur_mode_enabled = not self.blur_mode_enabled
+        self._refresh_blur_button()
 
-    def _refresh_ir_button(self):
-        if self.ir_mode_enabled:
-            if self.has_ir:
-                text, color = "[ IR MODE: ON ]", "#00d4ff"
-            else:
-                text, color = "[ IR MODE: NO CAMERA ]", "#ffaa00"
+    def _refresh_blur_button(self):
+        if self.blur_mode_enabled:
+            text, color = "[ BLUR: ON ]", "#ffaa00"
         else:
-            text, color = "[ IR MODE: OFF ]", "#666"
-        self.btn_ir_toggle.setText(text)
-        self.btn_ir_toggle.setStyleSheet(self._button_qss(color))
+            text, color = "[ BLUR: OFF ]", "#666"
+        self.btn_blur_toggle.setText(text)
+        self.btn_blur_toggle.setStyleSheet(self._button_qss(color))
 
     def toggle_blink_mode(self):
         self.blink_mode_enabled = not self.blink_mode_enabled
@@ -387,7 +454,7 @@ class MainWindow(QMainWindow):
         return lbp
 
     def _check_texture(self, frame, bbox):
-        """LBP texture + skin color analysis for spoof detection."""
+        """LBP texture + skin color + HSV saturation analysis for spoof detection."""
         # Run every 3 frames, reuse last result otherwise
         self._texture_frame_count += 1
         if self._texture_frame_count % 3 != 0:
@@ -404,7 +471,7 @@ class MainWindow(QMainWindow):
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         gray = cv2.resize(gray, (64, 64))
 
-        # 1. LBP entropy — prints have higher entropy (paper grain/print dots)
+        # 1. LBP entropy — real skin has higher entropy than print/display
         lbp = self._compute_lbp(gray)
         hist, _ = np.histogram(lbp.ravel(), bins=256, range=(0, 256))
         hist = hist.astype(np.float32)
@@ -419,43 +486,97 @@ class MainWindow(QMainWindow):
         skin_mask = (cb >= 77) & (cb <= 127) & (cr >= 133) & (cr <= 173)
         skin_ratio = skin_mask.sum() / skin_mask.size
 
-        if os.environ.get("DEBUG"):
-            print(f"TEX lbp={lbp_entropy:.2f} skin={skin_ratio:.3f}")
+        # 3. HSV saturation — displays (backlit) are high-sat, prints (ink) are low-sat
+        hsv = cv2.cvtColor(roi_resized, cv2.COLOR_BGR2HSV)
+        sat_mean = hsv[:, :, 1].mean()
 
-        if lbp_entropy < 6.10:
+        if os.environ.get("DEBUG"):
+            print(f"TEX lbp={lbp_entropy:.2f} skin={skin_ratio:.3f} sat={sat_mean:.1f}")
+
+        if sat_mean > 120:
+            # Very high saturation → display (backlit, phone close-up)
             result = (False, "display")
+        elif sat_mean < 55:
+            # Very low saturation → print (ink/paper, distance-agnostic)
+            result = (False, "print")
         elif skin_ratio < 0.20:
             result = (False, "print")
+        elif lbp_entropy < 5.50:
+            # Mid saturation + low entropy → split by saturation
+            if sat_mean > 80:
+                result = (False, "display")
+            else:
+                result = (False, "print")
         else:
             result = (True, None)
 
         self._texture_last_result = result
         return result
 
-    @staticmethod
-    def _button_qss(color):
+    def _button_qss(self, color):
+        s = self._scale
+        pv, ph = int(8 * s), int(16 * s)
+        fs = int(11 * s)
         return (
-            f"background-color: #1a1a1a; color: {color}; padding: 8px 16px; "
-            f"border: 1px solid {color}; font-size: 11px; font-family: 'Consolas';"
+            f"background-color: #1a1a1a; color: {color}; padding: {pv}px {ph}px; "
+            f"border: 1px solid {color}; font-size: {fs}px; font-family: 'Consolas';"
         )
 
-    def _check_blink(self, frame, now):
+    def _check_blink(self, frame, now, bbox=None):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mesh_results = self.face_mesh.process(rgb)
 
         if mesh_results.multi_face_landmarks:
-            landmarks = mesh_results.multi_face_landmarks[0].landmark
+            # Among multiple faces, pick the one matching bbox
+            landmarks = None
+            if bbox is not None:
+                h, w = frame.shape[:2]
+                x1, y1, x2, y2 = bbox
+                margin = int((x2 - x1) * 0.5)
+                best_dist = float('inf')
+                bcx, bcy = (x1 + x2) // 2, (y1 + y2) // 2
+                for face_lm in mesh_results.multi_face_landmarks:
+                    nose = face_lm.landmark[1]
+                    nx, ny = int(nose.x * w), int(nose.y * h)
+                    if (x1 - margin <= nx <= x2 + margin and
+                            y1 - margin <= ny <= y2 + margin):
+                        dist = abs(nx - bcx) + abs(ny - bcy)
+                        if dist < best_dist:
+                            best_dist = dist
+                            landmarks = face_lm.landmark
+            else:
+                landmarks = mesh_results.multi_face_landmarks[0].landmark
+
+            if landmarks is None:
+                # No face matched bbox → fall back to last blink time
+                time_since = now - self.last_blink_time if self.last_blink_time > 0 else 999
+                if time_since < self.BLINK_TIMEOUT:
+                    return True, None
+                return False, "blink"
+
             left_ear = compute_ear(landmarks, LEFT_EYE)
             right_ear = compute_ear(landmarks, RIGHT_EYE)
             avg_ear = (left_ear + right_ear) / 2.0
-            if os.environ.get("DEBUG"):
-                print(f"EAR={avg_ear:.3f}")
 
-            if avg_ear < self.EAR_CLOSE:
+            # Adapt threshold to face size:
+            # close (200px+): 0.31, far (100px): 0.35
+            if bbox is not None:
+                face_w = bbox[2] - bbox[0]
+                scale = max(0.0, min(1.0, (200 - face_w) / 100.0))
+                ear_close = 0.31 + scale * 0.04
+                ear_open = ear_close + 0.02
+            else:
+                ear_close = self.EAR_CLOSE
+                ear_open = self.EAR_OPEN
+
+            if os.environ.get("DEBUG"):
+                print(f"EAR={avg_ear:.3f} thr={ear_close:.2f}")
+
+            if avg_ear < ear_close:
                 if not self.was_closed:
                     self.was_closed = True
                     self.close_time = now
-            elif self.was_closed and avg_ear >= self.EAR_OPEN:
+            elif self.was_closed and avg_ear >= ear_open:
                 if (now - self.close_time) < 0.5:
                     self.last_blink_time = now
                 self.was_closed = False
@@ -492,33 +613,103 @@ class MainWindow(QMainWindow):
         ratio = rgb_mean / max(ir_mean, 1.0)
         if os.environ.get("DEBUG"):
             print(f"IR={ir_mean:.1f} std={ir_std:.1f} RGB={rgb_mean:.1f} ratio={ratio:.2f}")
-        if ir_mean > 50:
-            self.btn_ir_toggle.setText(f"[ IR: ACTIVE ({ir_mean:.0f}) ]")
-            self.btn_ir_toggle.setStyleSheet(self._button_qss("#00d4ff"))
-        else:
-            self.btn_ir_toggle.setText(f"[ IR: INACTIVE ({ir_mean:.0f}) ]")
-            self.btn_ir_toggle.setStyleSheet(self._button_qss("#ff3333"))
 
-        if ratio < 1.00:
-            return False, "print"
-        if ratio > 2.00:
-            return False, "display"
-        return True, None
+        if self.camera.is_d435:
+            # D435: depth flatness + ratio joint decision
+            # Real faces are 3D (nose/cheek/ear relief); prints/screens are flat
+            dep_ret, depth_map = self.camera.read_depth()
+            depth_std_val = 0.0
+            if dep_ret:
+                dep_roi = depth_map[iy1:iy2, ix1:ix2]
+                valid = dep_roi[dep_roi > 0].astype(np.float32)
+                if valid.size > 100:
+                    depth_std_val = valid.std()
+            if os.environ.get("DEBUG"):
+                print(f"DEPTH std={depth_std_val:.1f}")
+
+            is_flat = depth_std_val < 8.0
+            is_ratio_suspect = ratio > 0.80
+
+            if is_flat and is_ratio_suspect:
+                # Saturation-based subtype (more stable than ratio)
+                roi_color = rgb_frame[ry1:ry2, rx1:rx2]
+                if roi_color.size > 0:
+                    hsv_roi = cv2.cvtColor(cv2.resize(roi_color, (64, 64)),
+                                           cv2.COLOR_BGR2HSV)
+                    ir_sat = hsv_roi[:, :, 1].mean()
+                else:
+                    ir_sat = 0
+                if ir_sat > 80:
+                    return False, "display"
+                return False, "print"
+            else:
+                return True, None
+        else:
+            # Legacy USB IR: RGB/IR ratio decision
+            if ratio < 1.00:
+                return False, "print"
+            if ratio > 2.00:
+                return False, "display"
+            return True, None
 
     def _update_user_list(self):
         self.user_list.clear()
         for name in self.db.users.keys():
             self.user_list.addItem(name)
 
+    def _show_register_dialog(self):
+        s = self._scale
+        fs = int(14 * s)
+        pad = int(12 * s)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Register User")
+        dlg.setStyleSheet(
+            f"background-color: #111111; color: #c0c0c0; "
+            f"font-family: 'Consolas'; font-size: {fs}px;"
+        )
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(pad * 2, pad * 2, pad * 2, pad * 2)
+        layout.setSpacing(pad)
+
+        label = QLabel("Enter name (blank = auto)")
+        label.setStyleSheet(f"color: #ffaa00; font-size: {fs}px;")
+        layout.addWidget(label)
+
+        line = QLineEdit()
+        line.setStyleSheet(
+            f"background-color: #0c0c0c; color: #fff; border: 1px solid #ffaa00; "
+            f"padding: {pad}px; font-size: {fs}px;"
+        )
+        line.setPlaceholderText("e.g. John Doe")
+        layout.addWidget(line)
+
+        btn_layout = QHBoxLayout()
+        btn_ok = QPushButton("OK")
+        btn_ok.setStyleSheet(self._button_qss("#00ff41"))
+        btn_ok.clicked.connect(dlg.accept)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setStyleSheet(self._button_qss("#666"))
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+        dlg.setMinimumWidth(int(300 * s))
+        if dlg.exec_() == QDialog.Accepted:
+            return True, line.text()
+        return False, ""
+
     def register_face(self):
         if self.current_embedding is not None:
-            idx = self.db.count() + 1
-            name = f"User_{idx:03d}"
-            self.db.register(name, self.current_embedding)
-            self.reg_label.setText(f"Registered: {self.db.count()}")
-            self._update_user_list()
+            ok, name = self._show_register_dialog()
+            if ok:
+                name = name.strip() if name.strip() else f"User_{self.db.count() + 1:03d}"
+                self.db.register(name, self.current_embedding)
+                self.reg_label.setText(f"Registered: {self.db.count()}")
+                self._update_user_list()
+                self._set_status("AUTHORIZED", "#00ff41", f"{name} registered")
         else:
-            self._set_status("WAITING", "#555", "No face to register")
+            self._set_status("STANDBY", "#555", "No face to register")
 
     def delete_face(self):
         selected = self.user_list.currentItem()
@@ -528,12 +719,40 @@ class MainWindow(QMainWindow):
             self.reg_label.setText(f"Registered: {self.db.count()}")
             self._update_user_list()
         else:
-            self._set_status("WAITING", "#555", "Select a user to delete")
+            self._set_status("STANDBY", "#555", "Select a user to delete")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        h = event.size().height()
+        new_scale = max(1.0, h / 600.0)
+        if abs(new_scale - self._scale) > 0.05:
+            self._scale = new_scale
+            self._apply_scale()
+
+    def _apply_scale(self):
+        s = self._scale
+        margin = int(20 * s)
+        self._right_layout.setContentsMargins(margin, margin, margin, margin)
+        self._right_layout.setSpacing(int(8 * s))
+
+        self.title_label.setFont(QFont("Consolas", int(12 * s), QFont.Bold))
+        self.status_label.setFont(QFont("Consolas", int(13 * s), QFont.Bold))
+        self.reg_label.setFont(QFont("Consolas", int(10 * s)))
+
+        self.user_list.setStyleSheet(
+            f"background-color: #0c0c0c; color: #ffaa00; border: 1px solid #333; "
+            f"font-size: {int(11 * s)}px; padding: {int(2 * s)}px; font-family: 'Consolas';"
+        )
+
+        # Refresh buttons
+        self._refresh_blur_button()
+        self._refresh_blink_button()
+        self._refresh_texture_button()
+        self.btn_register.setStyleSheet(self._button_qss("#ffaa00"))
+        self.btn_delete.setStyleSheet(self._button_qss("#ff3333"))
 
     def closeEvent(self, event):
-        self.cap.release()
-        if self.ir_cap:
-            self.ir_cap.release()
+        self.camera.release()
         event.accept()
 
 
@@ -542,9 +761,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--camera", type=int, default=0)
     parser.add_argument("--ir_camera", type=int, default=-1)
+    parser.add_argument("--min_face", type=int, default=120,
+                        help="Minimum face width in px; smaller faces ignored (distance limit)")
+    parser.add_argument("--d435", action="store_true",
+                        help="Use Intel RealSense D435 (RGB + IR + Depth integrated)")
+    parser.add_argument("--max_depth", type=float, default=0.0,
+                        help="D435 max allowed distance in meters; 0 = unlimited")
     args = parser.parse_args()
+    # D435 enforces distance via depth, so min_face is unnecessary
+    if args.d435 and args.min_face == 120:
+        args.min_face = 0
 
     app = QApplication(sys.argv)
-    window = MainWindow(camera_id=args.camera, ir_camera_id=args.ir_camera)
+    window = MainWindow(camera_id=args.camera, ir_camera_id=args.ir_camera,
+                        min_face=args.min_face, use_d435=args.d435,
+                        max_depth=args.max_depth)
     window.show()
     sys.exit(app.exec_())
