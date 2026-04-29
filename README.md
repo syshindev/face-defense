@@ -95,19 +95,47 @@ face-defense/
 conda create -n face-defense python=3.10 -y
 conda activate face-defense
 
+# 1. PyTorch (CUDA 12.8)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-pip install insightface onnxruntime-gpu opencv-python mediapipe PyQt5 timm
+
+# 2. Track 1 & 2 core dependencies
+pip install insightface onnxruntime-gpu opencv-python PyQt5 timm
+pip install mediapipe==0.10.14
+pip install onnx==1.16.1
+
+# 3. Track 2 deepfake web UI
+pip install gradio
+
+# 4. Track 3 emotion recognition (TensorFlow-based — install last)
+pip install deepface
+pip install tensorflow==2.15.1 tf-keras==2.15.1
+
+# 5. Project install
 pip install -e .
 ```
+
+> **Install order matters.** Install `mediapipe` *before* `deepface`/`tensorflow` to avoid `protobuf` version conflicts.
+
+#### Version compatibility
+
+| Package | Pinned version | Reason |
+|---------|---------------|--------|
+| `mediapipe` | 0.10.14 | 0.10.33+ removed the `solutions` API |
+| `onnx` | 1.16.1 | Newer versions clash with `ml_dtypes` |
+| `tensorflow` | 2.15.1 | 2.21+ requires protobuf 7.x → conflicts with mediapipe |
+| `tf-keras` | 2.15.1 | Resolves Keras-detach issue in TF 2.15 |
 
 ### Quick Start
 
 ```bash
-# Track 1 — Access Control Kiosk
-python antispoof/scripts/demo_gui.py --camera 0 --ir_camera 1
+# Track 1 — Access Control Kiosk (add --ir_camera <idx> if you have an IR camera)
+python antispoof/scripts/demo_gui.py --camera 0
 
-# Track 2 — Deepfake Detector (Gradio)
+# Track 2 — Deepfake Detector (Gradio web UI)
 python deepfake/scripts/demo_deepfake_gui.py
+
+# Track 3 — Emotion Recognition
+python emotion/scripts/demo_emotion_gui.py --camera 0
 ```
 
 See each track's README for detailed usage, training, and benchmark instructions:
